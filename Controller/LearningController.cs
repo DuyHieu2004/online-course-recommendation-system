@@ -125,7 +125,6 @@ namespace online_course_recommendation_system.Controllers
                         b.MaBaiHoc,
                         b.LyThuyet,
                         b.LinkVideo,
-                        b.LinkTaiLieu,
                         b.BaiTap,
                         DaHoanThanh = completedLessonIds.Contains(b.MaBaiHoc)
                     }).ToList()

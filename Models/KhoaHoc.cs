@@ -35,6 +35,7 @@ public partial class KhoaHoc
 
     public int? ThoiGianChoPhepTre { get; set; } // Tính bằng ngày
     public bool IsDeleted { get; set; }
+    public string? TrinhDo { get; set; }
 
     public virtual ICollection<ChiTietGioHang> ChiTietGioHangs { get; set; } = new List<ChiTietGioHang>();
 
