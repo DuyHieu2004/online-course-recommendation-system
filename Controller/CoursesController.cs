@@ -24,6 +24,9 @@ namespace online_course_recommendation_system.Controllers
             [FromQuery] string? search = null,
             [FromQuery] int? categoryId = null,
             [FromQuery] string? level = null,
+            [FromQuery] double? minRating = null,
+            [FromQuery] decimal? minPrice = null,
+            [FromQuery] decimal? maxPrice = null,
             [FromQuery] string? sortBy = null)
         {
             var query = _context.KhoaHocs
@@ -33,17 +36,21 @@ namespace online_course_recommendation_system.Controllers
                 .Where(k => k.TinhTrang == "Published" && !k.IsDeleted)
                 .AsQueryable();
 
-            // Tìm kiếm theo tiều đề
+            // Tìm kiếm
             if (!string.IsNullOrWhiteSpace(search))
             {
-                query = query.Where(k => k.TieuDe.Contains(search) || (k.MoTa != null && k.MoTa.Contains(search)));
+                query = query.Where(k => k.TieuDe.Contains(search) 
+                    || (k.MoTa != null && k.MoTa.Contains(search))
+                    || k.GiangVienKhoaHocs.Any(gv => gv.MaGiangVienNavigation.Ten.Contains(search)));
             }
 
-            // Filter theo thể loại
-            if (categoryId.HasValue)
-            {
-                query = query.Where(k => k.MaTheLoai == categoryId.Value);
-            }
+            // Filter
+            if (categoryId.HasValue) query = query.Where(k => k.MaTheLoai == categoryId.Value);
+            if (!string.IsNullOrWhiteSpace(level) && level != "Tất cả") query = query.Where(k => k.TrinhDo == level);
+            if (minRating.HasValue) query = query.Where(k => (double)(k.TbdanhGia ?? 0) >= minRating.Value);
+            
+            if (minPrice.HasValue) query = query.Where(k => (k.GiaGoc ?? 0) >= minPrice.Value);
+            if (maxPrice.HasValue) query = query.Where(k => (k.GiaGoc ?? 0) <= maxPrice.Value);
 
             var totalCount = await query.CountAsync();
 
@@ -54,6 +61,7 @@ namespace online_course_recommendation_system.Controllers
                 "price_desc" => query.OrderByDescending(k => k.GiaGoc),
                 "rating" => query.OrderByDescending(k => k.TbdanhGia),
                 "newest" => query.OrderByDescending(k => k.NgayTao),
+                "popular" => query.OrderByDescending(k => k.TienDos.Count),
                 "revenue" => query.OrderByDescending(k => k.ChiTietHoaDons.Sum(c => c.Gia ?? 0)),
                 _ => query.OrderByDescending(k => k.NgayTao)
             };
@@ -112,83 +120,120 @@ namespace online_course_recommendation_system.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
-            var course = await _context.KhoaHocs
-                .Include(k => k.MaTheLoaiNavigation)
-                .Include(k => k.GiangVienKhoaHocs).ThenInclude(g => g.MaGiangVienNavigation)
-                .Include(k => k.Chuongs).ThenInclude(c => c.BaiHocs)
-                .Include(k => k.DanhGia).ThenInclude(d => d.MaNguoiDungNavigation)
-                .Include(k => k.MaKhuyenMaiNavigation)
-                .Where(k => k.MaKhoaHoc == id && !k.IsDeleted)
-                .Select(k => new
-                {
-                    k.MaKhoaHoc,
-                    k.TieuDe,
-                    k.TieuDePhu,
-                    k.MoTa,
-                    k.GiaGoc,
-                    k.TbdanhGia,
-                    k.AnhUrl,
-                    k.TinhTrang,
-                    k.KiNang,
-                    k.ThoiGianHocDuKien,
-                    k.ThoiGianChoPhepTre,
-                    k.NgayTao,
-                    k.NgayCapNhat,
-                    TheLoai = k.MaTheLoaiNavigation == null ? null : new
+            try
+            {
+                var course = await _context.KhoaHocs
+                    .Include(k => k.MaTheLoaiNavigation)
+                    .Include(k => k.GiangVienKhoaHocs).ThenInclude(g => g.MaGiangVienNavigation)
+                    .Include(k => k.Chuongs).ThenInclude(c => c.BaiHocs)
+                    .Include(k => k.DanhGia).ThenInclude(d => d.MaNguoiDungNavigation)
+                    .Include(k => k.MaKhuyenMaiNavigation)
+                    .Where(k => k.MaKhoaHoc == id && !k.IsDeleted)
+                    .Select(k => new
                     {
-                        k.MaTheLoaiNavigation.MaTheLoai,
-                        k.MaTheLoaiNavigation.Ten
-                    },
-                    GiangVien = k.GiangVienKhoaHocs.Select(gv => new
-                    {
-                        gv.MaGiangVienNavigation.MaNguoiDung,
-                        gv.MaGiangVienNavigation.Ten,
-                        gv.MaGiangVienNavigation.LinkAnhDaiDien,
-                        gv.MaGiangVienNavigation.TieuSu,
-                        gv.LaGiangVienChinh
-                    }),
-                    Chuongs = k.Chuongs.Select(c => new
-                    {
-                        c.MaChuong,
-                        c.TieuDe,
-                        BaiHocs = c.BaiHocs.Select(b => new
+                        k.MaKhoaHoc,
+                        k.TieuDe,
+                        k.TieuDePhu,
+                        k.MoTa,
+                        k.GiaGoc,
+                        k.TbdanhGia,
+                        k.AnhUrl,
+                        k.TinhTrang,
+                        k.KiNang,
+                        k.ThoiGianHocDuKien,
+                        k.ThoiGianChoPhepTre,
+                        k.NgayTao,
+                        k.NgayCapNhat,
+                        TheLoai = k.MaTheLoaiNavigation == null ? null : new
                         {
-                            b.MaBaiHoc,
-                            b.LyThuyet,
-                            b.LinkVideo,
-                            b.BaiTap
-                        })
-                    }),
-                    DanhGia = k.DanhGia.Select(d => new
-                    {
-                        d.MaDanhGia,
-                        d.Rating,
-                        d.BinhLuan,
-                        d.NgayDanhGia,
-                        d.Thich,
-                        NguoiDanhGia = d.MaNguoiDungNavigation == null ? null : new
+                            k.MaTheLoaiNavigation.MaTheLoai,
+                            k.MaTheLoaiNavigation.Ten
+                        },
+                        GiangVien = k.GiangVienKhoaHocs.Select(gv => new
                         {
-                            d.MaNguoiDungNavigation.MaNguoiDung,
-                            d.MaNguoiDungNavigation.Ten,
-                            d.MaNguoiDungNavigation.LinkAnhDaiDien
+                            gv.MaGiangVienNavigation.MaNguoiDung,
+                            gv.MaGiangVienNavigation.Ten,
+                            gv.MaGiangVienNavigation.LinkAnhDaiDien,
+                            gv.MaGiangVienNavigation.TieuSu,
+                            gv.LaGiangVienChinh
+                        }),
+                        Chuongs = k.Chuongs.OrderBy(c => c.MaChuong).Select(c => new
+                        {
+                            c.MaChuong,
+                            c.TieuDe,
+                            SoBaiHoc = c.BaiHocs.Count
+                        }),
+                        DanhGia = k.DanhGia.OrderByDescending(d => d.NgayDanhGia).Select(d => new
+                        {
+                            d.MaDanhGia,
+                            d.Rating,
+                            d.BinhLuan,
+                            d.NgayDanhGia,
+                            NguoiDanhGia = d.MaNguoiDungNavigation == null ? null : new
+                            {
+                                d.MaNguoiDungNavigation.MaNguoiDung,
+                                d.MaNguoiDungNavigation.Ten,
+                                d.MaNguoiDungNavigation.LinkAnhDaiDien
+                            }
+                        }),
+                        SoLuongDanhGia = k.DanhGia.Count,
+                        SoHocVien = k.TienDos.Count,
+                        SoLuongChuong = k.Chuongs.Count,
+                        KhuyenMai = k.MaKhuyenMaiNavigation == null ? null : new
+                        {
+                            k.MaKhuyenMaiNavigation.PhanTramGiam,
+                            k.MaKhuyenMaiNavigation.NgayKetThuc
                         }
-                    }),
-                    SoLuongDanhGia = k.DanhGia.Count,
-                    SoHocVien = k.TienDos.Count,
-                    SoLuongChuong = k.Chuongs.Count,
-                    SoLuongBaiHoc = k.Chuongs.SelectMany(c => c.BaiHocs).Count(),
-                    KhuyenMai = k.MaKhuyenMaiNavigation == null ? null : new
+                    })
+                    .FirstOrDefaultAsync();
+
+                if (course == null)
+                    return NotFound(new { message = "Không tìm thấy khóa học." });
+
+                // Bổ sung thông tin cá nhân hóa nếu đã đăng nhập
+                var userId = GetUserIdFromToken();
+                bool isCompleted = false;
+                object? userReview = null;
+
+                if (userId.HasValue)
+                {
+                    var tienDo = await _context.TienDos
+                        .FirstOrDefaultAsync(t => t.MaNguoiDung == userId.Value && t.MaKhoaHoc == id);
+                    isCompleted = (tienDo?.PhanTramTienDo ?? 0) >= 100;
+
+                    var review = await _context.DanhGia
+                        .FirstOrDefaultAsync(d => d.MaNguoiDung == userId.Value && d.MaKhoaHoc == id);
+                    if (review != null)
                     {
-                        k.MaKhuyenMaiNavigation.PhanTramGiam,
-                        k.MaKhuyenMaiNavigation.NgayKetThuc
+                        userReview = new
+                        {
+                            review.MaDanhGia,
+                            review.Rating,
+                            review.BinhLuan,
+                            review.NgayDanhGia
+                        };
                     }
-                })
-                .FirstOrDefaultAsync();
+                }
 
-            if (course == null)
-                return NotFound(new { message = "Không tìm thấy khóa học." });
+                return Ok(new
+                {
+                    course,
+                    isCompleted,
+                    userReview
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi Server: " + ex.Message });
+            }
+        }
 
-            return Ok(course);
+        private int? GetUserIdFromToken()
+        {
+            var userIdClaim = User.FindFirst("UserId")?.Value;
+            if (userIdClaim != null && int.TryParse(userIdClaim, out int userId))
+                return userId;
+            return null;
         }
 
         // ③ GET /api/courses/{id}/chapters — Danh sách chương & bài học
