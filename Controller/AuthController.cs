@@ -90,16 +90,19 @@ namespace online_course_recommendation_system.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto request)
         {
-            // Workaround cho lỗi Autofill của trình duyệt tự điền "12345678"
-            var actualPassword = request.MatKhau == "12345678" ? "123456" : request.MatKhau;
-
             // Tìm user trong DB theo Email
-            Console.WriteLine($"[DEBUG-LOGIN] Email: '{request.Email}', Password Length: {request.MatKhau?.Length}, MatKhau: '{request.MatKhau}'");
+            Console.WriteLine($"[DEBUG-LOGIN] Email: '{request.Email}', Password Length: {request.MatKhau?.Length}");
             var user = await _context.NguoiDungs.FirstOrDefaultAsync(u => u.Email == request.Email);
             
             // Nếu không tìm thấy hoặc sai mật khẩu
-            if (user == null || user.MatKhau != HashPassword(actualPassword))
+            if (user == null || user.MatKhau != HashPassword(request.MatKhau))
+            {
+                if (user != null)
+                {
+                    Console.WriteLine($"[DEBUG-LOGIN] FAILED: Hash mismatch. Input hash: {HashPassword(request.MatKhau)}, DB hash: {user.MatKhau}");
+                }
                 return Unauthorized(new { message = "Email hoặc mật khẩu không chính xác." });
+            }
 
             if (user.TinhTrang == "Chờ duyệt")
                 return Unauthorized(new { message = "Tài khoản của bạn đang chờ Admin duyệt hồ sơ. Vui lòng thử lại sau." });
