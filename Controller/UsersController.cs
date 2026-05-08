@@ -26,9 +26,9 @@ namespace online_course_recommendation_system.Controllers
         [HttpGet("ping")]
         public IActionResult Ping() => Ok("pong");
 
-        // ⑨ GET /api/users/debugroute — Lấy cấu hình nhận thông báo
-        [AllowAnonymous]
-        [HttpGet("debugroute")]
+        // ⑨ GET /api/users/notification-settings — Lấy cấu hình nhận thông báo
+        [Authorize]
+        [HttpGet("notification-settings")]
         public async Task<IActionResult> GetNotificationSettings()
         {
             var userId = GetUserIdFromToken();
@@ -53,9 +53,9 @@ namespace online_course_recommendation_system.Controllers
             return Ok(GetDefaultSettings(user.VaiTro ?? "HocVien"));
         }
 
-        // ⑩ POST /api/users/debugroute — Cập nhật cấu hình nhận thông báo
-        [AllowAnonymous]
-        [HttpPost("debugroute")]
+        // ⑩ POST /api/users/notification-settings — Cập nhật cấu hình nhận thông báo
+        [Authorize]
+        [HttpPost("notification-settings")]
         public async Task<IActionResult> UpdateNotificationSettings([FromBody] JsonElement settings)
         {
             var userId = GetUserIdFromToken();
