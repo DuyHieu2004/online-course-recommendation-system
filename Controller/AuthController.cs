@@ -38,7 +38,7 @@ namespace online_course_recommendation_system.Controllers
                 return BadRequest(new { message = "Email này đã được sử dụng!" });
 
             var vaiTro = request.VaiTro == "instructor" || request.VaiTro == "GiaoVien" ? "GiaoVien" : "HocVien";
-            var tinhTrang = vaiTro == "GiaoVien" ? "Chờ duyệt" : "Hoạt động";
+            var tinhTrang = vaiTro == "GiaoVien" ? "Chờ duyệt" : "Active";
             
             string? degreeUrl = null;
 
