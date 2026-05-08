@@ -3,10 +3,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using online_course_recommendation_system.Data;
 using online_course_recommendation_system.DTO;
+using System.IO;
+using System.Text.Json;
 
 namespace online_course_recommendation_system.Controllers
 {
-    [Route("api/[controller]")]
+    [Route("api/users")]
     [ApiController]
     public class UsersController : ControllerBase
     {
@@ -20,6 +22,67 @@ namespace online_course_recommendation_system.Controllers
             _env = env;
             _cloudinaryService = cloudinaryService;
         }
+
+        [HttpGet("ping")]
+        public IActionResult Ping() => Ok("pong");
+
+        // ⑨ GET /api/users/debugroute — Lấy cấu hình nhận thông báo
+        [AllowAnonymous]
+        [HttpGet("debugroute")]
+        public async Task<IActionResult> GetNotificationSettings()
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var user = await _context.NguoiDungs.FindAsync(userId.Value);
+            if (user == null) return NotFound();
+
+            var settingsPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "user_notifications.json");
+            if (System.IO.File.Exists(settingsPath))
+            {
+                var json = await System.IO.File.ReadAllTextAsync(settingsPath);
+                try {
+                    var allSettings = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
+                    if (allSettings != null && allSettings.TryGetValue(userId.Value.ToString(), out var userSettings))
+                    {
+                        return Ok(userSettings);
+                    }
+                } catch { }
+            }
+
+            return Ok(GetDefaultSettings(user.VaiTro ?? "HocVien"));
+        }
+
+        // ⑩ POST /api/users/debugroute — Cập nhật cấu hình nhận thông báo
+        [AllowAnonymous]
+        [HttpPost("debugroute")]
+        public async Task<IActionResult> UpdateNotificationSettings([FromBody] JsonElement settings)
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var settingsPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "user_notifications.json");
+            Dictionary<string, JsonElement> allSettings = new();
+
+            if (System.IO.File.Exists(settingsPath))
+            {
+                var json = await System.IO.File.ReadAllTextAsync(settingsPath);
+                try {
+                    allSettings = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json) ?? new();
+                } catch { allSettings = new(); }
+            }
+
+            allSettings[userId.Value.ToString()] = settings;
+
+            var dir = Path.GetDirectoryName(settingsPath);
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir!);
+
+            var updatedJson = JsonSerializer.Serialize(allSettings, new JsonSerializerOptions { WriteIndented = true });
+            await System.IO.File.WriteAllTextAsync(settingsPath, updatedJson);
+
+            return Ok(new { message = "Cập nhật cấu hình thông báo thành công!" });
+        }
+
 
         // ① GET /api/users/profile — Xem profile bản thân (cần đăng nhập)
         [Authorize]
@@ -282,6 +345,73 @@ namespace online_course_recommendation_system.Controllers
             await _context.SaveChangesAsync();
 
             return Ok(new { message = $"Đã cập nhật trạng thái của '{user.Ten}' thành '{request.TinhTrang}'." });
+        }
+
+        // ⑦ GET /api/users/notifications — Lấy danh sách thông báo của bản thân
+        [Authorize]
+        [HttpGet("notifications")]
+        public async Task<IActionResult> GetMyNotifications()
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var notifications = await _context.ThongBaos
+                .Where(t => t.MaNguoiDung == userId.Value)
+                .OrderByDescending(t => t.NgayTao)
+                .Take(50) // Giới hạn lấy 50 thông báo gần nhất
+                .Select(t => new
+                {
+                    t.MaThongBao,
+                    t.TieuDe,
+                    t.NoiDung,
+                    t.NgayTao,
+                    t.DaDoc
+                })
+                .ToListAsync();
+
+            var unreadCount = await _context.ThongBaos.CountAsync(t => t.MaNguoiDung == userId.Value && !t.DaDoc);
+
+            return Ok(new { data = notifications, unreadCount });
+        }
+
+        // ⑧ PUT /api/users/notifications/{id}/read — Đánh dấu đã đọc
+        [Authorize]
+        [HttpPut("notifications/{id}/read")]
+        public async Task<IActionResult> MarkNotificationAsRead(int id)
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var notif = await _context.ThongBaos.FirstOrDefaultAsync(t => t.MaThongBao == id && t.MaNguoiDung == userId.Value);
+            if (notif == null) return NotFound(new { message = "Không tìm thấy thông báo." });
+
+            notif.DaDoc = true;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Đã đánh dấu đọc." });
+        }
+
+        private object GetDefaultSettings(string vaiTro)
+        {
+            if (vaiTro == "GiaoVien")
+            {
+                return new[]
+                {
+                    new { id = "enrollment", label = "Học viên mới đăng ký", enabled = true },
+                    new { id = "review", label = "Đánh giá mới", enabled = true },
+                    new { id = "revenue", label = "Báo cáo doanh thu", enabled = true },
+                    new { id = "approval", label = "Trạng thái khóa học", enabled = true },
+                    new { id = "promotion", label = "Khuyến mãi hệ thống", enabled = false }
+                };
+            }
+
+            return new[]
+            {
+                new { id = "purchase", label = "Xác nhận mua khóa học", enabled = true },
+                new { id = "expiry", label = "Nhắc nhở quá hạn", enabled = true },
+                new { id = "update", label = "Cập nhật nội dung", enabled = true },
+                new { id = "promotion", label = "Khuyến mãi & Ưu đãi", enabled = false }
+            };
         }
 
         // ==========================================

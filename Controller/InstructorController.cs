@@ -104,7 +104,8 @@ namespace online_course_recommendation_system.Controllers
                     },
                     t.PhanTramTienDo,
                     TinhTrang = t.TinhTrang == true ? "Đang học" : "Chưa bắt đầu",
-                    t.NgayThamGia
+                    t.NgayThamGia,
+                    t.NgayKetThuc
                 })
                 .ToListAsync();
 
@@ -264,6 +265,8 @@ namespace online_course_recommendation_system.Controllers
             course.GiaGoc = request.GiaGoc;
             course.MaTheLoai = request.MaTheLoai;
             course.KiNang = request.KiNang;
+            course.ThoiGianHocDuKien = request.ThoiGianHocDuKien;
+            course.ThoiGianChoPhepTre = request.ThoiGianChoPhepTre;
             if (!string.IsNullOrEmpty(request.TinhTrang))
             {
                 // Chỉ cho phép admin hoặc logic khác ngoài instructor controller này (hoặc nếu ta muốn cho phép ở đây)
@@ -421,31 +424,6 @@ namespace online_course_recommendation_system.Controllers
             return Ok(new { message = "Upload ảnh khóa học thành công.", anhUrl = course.AnhUrl });
         }
 
-        // ⑩ POST /api/instructor/lessons/{lessonId}/pdf — Upload PDF cho bài học
-        [HttpPost("lessons/{lessonId}/pdf")]
-        public async Task<IActionResult> UploadPdf(int lessonId, IFormFile file)
-        {
-            if (file == null || file.Length == 0)
-                return BadRequest("Vui lòng chọn file PDF.");
-
-            var userId = GetUserIdFromToken();
-            if (userId == null) return Unauthorized();
-
-            var lesson = await _context.BaiHocs.Include(b => b.MaChuongNavigation).FirstOrDefaultAsync(b => b.MaBaiHoc == lessonId);
-            if (lesson == null || lesson.MaChuongNavigation == null) return NotFound("Bài học không tồn tại.");
-
-            var isOwner = await _context.GiangVienKhoaHocs.AnyAsync(gv => gv.MaGiangVien == userId.Value && gv.MaKhoaHoc == lesson.MaChuongNavigation.MaKhoaHoc);
-            if (!isOwner) return Forbid();
-
-            var uploadResult = await _cloudinaryService.UploadFileAsync(file, "courses/documents");
-            if (string.IsNullOrEmpty(uploadResult))
-                return BadRequest(new { message = "Lỗi khi upload PDF lên Cloudinary." });
-
-            lesson.LinkTaiLieu = uploadResult;
-            await _context.SaveChangesAsync();
-
-            return Ok(new { message = "Upload tài liệu thành công.", linkTaiLieu = lesson.LinkTaiLieu });
-        }
 
         // ⑪ GET /api/instructor/courses/{courseId}/announcements — Lấy danh sách thông báo
         [HttpGet("courses/{courseId}/announcements")]
@@ -560,6 +538,8 @@ namespace online_course_recommendation_system.Controllers
         public decimal? GiaGoc { get; set; }
         public int? MaTheLoai { get; set; }
         public string? KiNang { get; set; }
+        public int? ThoiGianHocDuKien { get; set; }
+        public int? ThoiGianChoPhepTre { get; set; }
     }
 
     public class UpdateCourseRequest : CreateCourseRequest
@@ -576,7 +556,6 @@ namespace online_course_recommendation_system.Controllers
     {
         public string? LyThuyet { get; set; }
         public string? BaiTap { get; set; }
-        public string? LinkTaiLieu { get; set; }
     }
 
     public class CreateAnnouncementRequest

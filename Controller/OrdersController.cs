@@ -72,13 +72,22 @@ namespace online_course_recommendation_system.Controllers
 
                     if (!alreadyEnrolled)
                     {
+                        var thoiGianHoc = item.MaKhoaHocNavigation?.ThoiGianHocDuKien ?? 0;
+                        var thoiGianTre = item.MaKhoaHocNavigation?.ThoiGianChoPhepTre ?? 0;
+                        DateTime? ngayKetThuc = null;
+                        if (thoiGianHoc > 0)
+                        {
+                            ngayKetThuc = DateTime.Now.AddMonths(thoiGianHoc).AddDays(thoiGianTre);
+                        }
+
                         _context.TienDos.Add(new TienDo
                         {
                             MaNguoiDung = userId.Value,
                             MaKhoaHoc = item.MaKhoaHoc,
                             PhanTramTienDo = 0,
                             TinhTrang = true,
-                            NgayThamGia = DateTime.Now
+                            NgayThamGia = DateTime.Now,
+                            NgayKetThuc = ngayKetThuc
                         });
                     }
                 }
@@ -107,7 +116,9 @@ namespace online_course_recommendation_system.Controllers
         [HttpGet]
         public async Task<IActionResult> GetOrders(
             [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 10)
+            [FromQuery] int pageSize = 10,
+            [FromQuery] string? search = null,
+            [FromQuery] string? status = null)
         {
             var userId = GetUserIdFromToken();
             if (userId == null)
@@ -116,7 +127,32 @@ namespace online_course_recommendation_system.Controllers
             var query = _context.HoaDons
                 .Where(h => h.MaNguoiDung == userId.Value)
                 .Include(h => h.ChiTietHoaDons)
-                    .ThenInclude(ct => ct.MaKhoaHocNavigation);
+                    .ThenInclude(ct => ct.MaKhoaHocNavigation)
+                .AsQueryable();
+
+            // Lọc theo trạng thái
+            if (!string.IsNullOrEmpty(status))
+            {
+                if (status == "Đã thanh toán")
+                    query = query.Where(h => h.TinhTrangThanhToan == true);
+                else if (status == "Thất bại")
+                    query = query.Where(h => h.TinhTrangThanhToan == false);
+                else if (status == "Chờ thanh toán")
+                    query = query.Where(h => h.TinhTrangThanhToan == null);
+            }
+
+            // Lọc theo từ khóa tìm kiếm (Mã hóa đơn hoặc Tên khóa học)
+            if (!string.IsNullOrEmpty(search))
+            {
+                if (int.TryParse(search, out int maHD))
+                {
+                    query = query.Where(h => h.MaHoaDon == maHD);
+                }
+                else
+                {
+                    query = query.Where(h => h.ChiTietHoaDons.Any(ct => ct.MaKhoaHocNavigation.TieuDe.Contains(search)));
+                }
+            }
 
             var totalCount = await query.CountAsync();
 
@@ -129,7 +165,7 @@ namespace online_course_recommendation_system.Controllers
                     h.MaHoaDon,
                     h.TongTien,
                     h.PhuongThucThanhToan,
-                    TinhTrangThanhToan = h.TinhTrangThanhToan == true ? "Đã thanh toán" : "Chờ thanh toán",
+                    TinhTrangThanhToan = h.TinhTrangThanhToan == true ? "Đã thanh toán" : (h.TinhTrangThanhToan == false ? "Thất bại" : "Chờ thanh toán"),
                     h.NgayTao,
                     ChiTiet = h.ChiTietHoaDons.Select(ct => new
                     {
@@ -139,7 +175,9 @@ namespace online_course_recommendation_system.Controllers
                         {
                             ct.MaKhoaHocNavigation.MaKhoaHoc,
                             ct.MaKhoaHocNavigation.TieuDe,
-                            ct.MaKhoaHocNavigation.AnhUrl
+                            ct.MaKhoaHocNavigation.AnhUrl,
+                            ct.MaKhoaHocNavigation.ThoiGianHocDuKien,
+                            ct.MaKhoaHocNavigation.ThoiGianChoPhepTre
                         }
                     })
                 })

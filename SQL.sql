@@ -1,4 +1,4 @@
-﻿-- Tạo Database
+-- Tạo Database
 CREATE DATABASE ELearning_DB;
 GO
 USE ELearning_DB;
@@ -84,7 +84,9 @@ CREATE TABLE KhoaHoc (
     MaTheLoai INT FOREIGN KEY REFERENCES TheLoai(MaTheLoai),
     KiNang NVARCHAR(MAX),
     AnhURL VARCHAR(MAX),
-    MaKhuyenMai INT FOREIGN KEY REFERENCES KhuyenMai(MaKhuyenMai)
+    MaKhuyenMai INT FOREIGN KEY REFERENCES KhuyenMai(MaKhuyenMai),
+    ThoiGianHocDuKien INT,
+    ThoiGianChoPhepTre INT
 );
 
 -- ==========================================
@@ -142,6 +144,7 @@ CREATE TABLE TienDo (
     NgayThamGia DATETIME DEFAULT GETDATE(),
     PhanTramTienDo FLOAT DEFAULT 0 CHECK (PhanTramTienDo >= 0 AND PhanTramTienDo <= 100),
     TinhTrang BIT DEFAULT 0, -- 0: Đang học (chưa hoàn thành), 1: Đã hoàn thành
+    NgayKetThuc DATETIME,
     MaKhoaHoc INT FOREIGN KEY REFERENCES KhoaHoc(MaKhoaHoc),
     MaNguoiDung INT FOREIGN KEY REFERENCES NguoiDung(MaNguoiDung) 
 );
@@ -203,6 +206,17 @@ BEGIN
         CONSTRAINT UQ_LuotThichKhoaHoc UNIQUE(MaNguoiDung, MaKhoaHoc)
     );
 END;
+GO
+
+-- Bảng Thông báo
+CREATE TABLE ThongBao (
+    MaThongBao INT IDENTITY(1,1) PRIMARY KEY,
+    MaNguoiDung INT NOT NULL FOREIGN KEY REFERENCES NguoiDung(MaNguoiDung),
+    TieuDe NVARCHAR(255) NOT NULL,
+    NoiDung NVARCHAR(MAX) NOT NULL,
+    NgayTao DATETIME DEFAULT GETDATE() NOT NULL,
+    DaDoc BIT DEFAULT 0 NOT NULL
+);
 GO
 
 -- 3. Thêm dữ liệu mẫu

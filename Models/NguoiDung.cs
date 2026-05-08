@@ -25,6 +25,8 @@ public partial class NguoiDung
 
     public string? HoSoBangCap { get; set; }
 
+    public string? HangThanhVien { get; set; }
+
     public virtual ICollection<ChungChi> ChungChis { get; set; } = new List<ChungChi>();
 
     public virtual ICollection<DanhGium> DanhGia { get; set; } = new List<DanhGium>();
@@ -36,6 +38,10 @@ public partial class NguoiDung
     public virtual ICollection<HoaDon> HoaDons { get; set; } = new List<HoaDon>();
 
     public virtual ICollection<LuotThichKhoaHoc> LuotThichKhoaHocs { get; set; } = new List<LuotThichKhoaHoc>();
+
+    public virtual ICollection<ThongBaoKhoaHoc> ThongBaoKhoaHocs { get; set; } = new List<ThongBaoKhoaHoc>();
+
+    public virtual ICollection<ThongBao> ThongBaos { get; set; } = new List<ThongBao>();
 
     public virtual ICollection<TienDo> TienDos { get; set; } = new List<TienDo>();
 }

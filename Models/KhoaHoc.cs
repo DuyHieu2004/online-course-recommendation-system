@@ -33,6 +33,10 @@ public partial class KhoaHoc
 
     public bool IsDeleted { get; set; }
 
+    public int? ThoiGianHocDuKien { get; set; }
+
+    public int? ThoiGianChoPhepTre { get; set; }
+
     public virtual ICollection<ChiTietGioHang> ChiTietGioHangs { get; set; } = new List<ChiTietGioHang>();
 
     public virtual ICollection<ChiTietHoaDon> ChiTietHoaDons { get; set; } = new List<ChiTietHoaDon>();

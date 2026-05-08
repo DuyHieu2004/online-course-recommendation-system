@@ -32,6 +32,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<GioHang> GioHangs { get; set; }
 
+    public virtual DbSet<HangThanhVien> HangThanhViens { get; set; }
+
     public virtual DbSet<HoaDon> HoaDons { get; set; }
 
     public virtual DbSet<KhoaHoc> KhoaHocs { get; set; }
@@ -44,17 +46,17 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<TheLoai> TheLoais { get; set; }
 
+    public virtual DbSet<ThongBao> ThongBaos { get; set; }
+
     public virtual DbSet<ThongBaoKhoaHoc> ThongBaoKhoaHocs { get; set; }
 
     public virtual DbSet<TienDo> TienDos { get; set; }
 
     public virtual DbSet<TienDoBaiHoc> TienDoBaiHocs { get; set; }
 
-    public virtual DbSet<VwKhoaHocGiaThucTe> VwKhoaHocGiaThucTes { get; set; }
+    public virtual DbSet<VoucherHang> VoucherHangs { get; set; }
 
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
-        => optionsBuilder.UseSqlServer("Server=localhost;Database=ELearning_DB;Trusted_Connection=True;TrustServerCertificate=True;");
+    public virtual DbSet<VwKhoaHocGiaThucTe> VwKhoaHocGiaThucTes { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -201,6 +203,15 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK__GioHang__MaNguoi__73BA3083");
         });
 
+        modelBuilder.Entity<HangThanhVien>(entity =>
+        {
+            entity.HasKey(e => e.MaHang).HasName("PK__HangThan__19C0DB1D64ADBC55");
+
+            entity.ToTable("HangThanhVien");
+
+            entity.Property(e => e.TenHang).HasMaxLength(50);
+        });
+
         modelBuilder.Entity<HoaDon>(entity =>
         {
             entity.HasKey(e => e.MaHoaDon).HasName("PK__HoaDon__835ED13B50CA0A6B");
@@ -294,6 +305,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Email)
                 .HasMaxLength(100)
                 .IsUnicode(false);
+            entity.Property(e => e.HangThanhVien)
+                .HasMaxLength(50)
+                .HasDefaultValue("Thường");
             entity.Property(e => e.LinkAnhDaiDien).IsUnicode(false);
             entity.Property(e => e.MatKhau)
                 .HasMaxLength(255)
@@ -315,12 +329,33 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Ten).HasMaxLength(100);
         });
 
+        modelBuilder.Entity<ThongBao>(entity =>
+        {
+            entity.HasKey(e => e.MaThongBao).HasName("PK__ThongBao__04DEB54EA9B34D35");
+
+            entity.ToTable("ThongBao");
+
+            entity.Property(e => e.NgayTao)
+                .HasDefaultValueSql("(getdate())")
+                .HasColumnType("datetime");
+            entity.Property(e => e.TieuDe).HasMaxLength(255);
+
+            entity.HasOne(d => d.MaNguoiDungNavigation).WithMany(p => p.ThongBaos)
+                .HasForeignKey(d => d.MaNguoiDung)
+                .HasConstraintName("FK_ThongBao_NguoiDung");
+        });
+
         modelBuilder.Entity<ThongBaoKhoaHoc>(entity =>
         {
             entity.HasKey(e => e.MaThongBao).HasName("PK__ThongBao__04DEB54E057E25CB");
 
             entity.ToTable("ThongBaoKhoaHoc");
 
+            entity.Property(e => e.DaDoc).HasDefaultValue(false);
+            entity.Property(e => e.LoaiThongBao)
+                .HasMaxLength(50)
+                .IsUnicode(false)
+                .HasDefaultValue("Course");
             entity.Property(e => e.NgayTao)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
@@ -328,7 +363,12 @@ public partial class AppDbContext : DbContext
 
             entity.HasOne(d => d.MaKhoaHocNavigation).WithMany(p => p.ThongBaoKhoaHocs)
                 .HasForeignKey(d => d.MaKhoaHoc)
+                .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("FK__ThongBaoK__MaKho__2B0A656D");
+
+            entity.HasOne(d => d.MaNguoiDungNavigation).WithMany(p => p.ThongBaoKhoaHocs)
+                .HasForeignKey(d => d.MaNguoiDung)
+                .HasConstraintName("FK__ThongBaoK__MaNgu__4B7734FF");
         });
 
         modelBuilder.Entity<TienDo>(entity =>
@@ -337,6 +377,7 @@ public partial class AppDbContext : DbContext
 
             entity.ToTable("TienDo");
 
+            entity.Property(e => e.NgayKetThuc).HasColumnType("datetime");
             entity.Property(e => e.NgayThamGia)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
@@ -368,6 +409,26 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.MaTienDoNavigation).WithMany(p => p.TienDoBaiHocs)
                 .HasForeignKey(d => d.MaTienDo)
                 .HasConstraintName("FK__TienDoBai__MaTie__7C4F7684");
+        });
+
+        modelBuilder.Entity<VoucherHang>(entity =>
+        {
+            entity.HasKey(e => e.MaVoucher).HasName("PK__Voucher___0AAC5B11EF4A5366");
+
+            entity.ToTable("Voucher_Hang");
+
+            entity.Property(e => e.MaCode)
+                .HasMaxLength(50)
+                .IsUnicode(false);
+            entity.Property(e => e.NgayTao)
+                .HasDefaultValueSql("(getdate())")
+                .HasColumnType("datetime");
+            entity.Property(e => e.TieuDe).HasMaxLength(255);
+
+            entity.HasOne(d => d.MaHangNavigation).WithMany(p => p.VoucherHangs)
+                .HasForeignKey(d => d.MaHang)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK__Voucher_H__MaHan__498EEC8D");
         });
 
         modelBuilder.Entity<VwKhoaHocGiaThucTe>(entity =>

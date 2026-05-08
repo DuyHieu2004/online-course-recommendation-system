@@ -1,5 +1,5 @@
 using Neo4j.Driver;
-using online_course_recommendation_system.Service;
+
 using online_course_recommendation_system.Configurations;
 using Microsoft.EntityFrameworkCore;
 using online_course_recommendation_system.Data;
@@ -7,6 +7,8 @@ using Microsoft.OpenApi.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using online_course_recommendation_system.Service;
+using online_course_recommendation_system.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,6 +22,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.Configure<Neo4jSettings>(
     builder.Configuration.GetSection("Neo4j")
 );
+builder.Services.Configure<SmtpSettings>(
+    builder.Configuration.GetSection("Smtp")
+);
+
+// Register Email Service
+builder.Services.AddScoped<IEmailService, EmailService>();
 
 // đăng ký IDriver singleton
 builder.Services.AddSingleton<IDriver>(sp =>
@@ -34,6 +42,8 @@ builder.Services.AddSingleton<IDriver>(sp =>
 });
 
 // CORS cho Frontend Angular
+builder.Services.AddHostedService<DeadlineReminderWorker>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
@@ -96,8 +106,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = true,
-            ValidateAudience = true,
+            ValidateIssuer = false,
+            ValidateAudience = false,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
@@ -109,14 +119,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 var app = builder.Build();
 
 // 3. CẤU HÌNH HIỂN THỊ GIAO DIỆN SWAGGER
-// Thường chỉ bật Swagger khi đang code (Development) để bảo mật
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Docker"))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "API Gợi ý Khóa học v1");
-        c.RoutePrefix = string.Empty; // Mở web lên là hiện luôn Swagger ở trang chủ (localhost:port)
     });
 }
 

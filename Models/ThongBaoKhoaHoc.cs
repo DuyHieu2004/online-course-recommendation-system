@@ -7,7 +7,7 @@ public partial class ThongBaoKhoaHoc
 {
     public int MaThongBao { get; set; }
 
-    public int MaKhoaHoc { get; set; }
+    public int? MaKhoaHoc { get; set; }
 
     public string TieuDe { get; set; } = null!;
 
@@ -15,5 +15,13 @@ public partial class ThongBaoKhoaHoc
 
     public DateTime? NgayTao { get; set; }
 
-    public virtual KhoaHoc MaKhoaHocNavigation { get; set; } = null!;
+    public int? MaNguoiDung { get; set; }
+
+    public string? LoaiThongBao { get; set; }
+
+    public bool? DaDoc { get; set; }
+
+    public virtual KhoaHoc? MaKhoaHocNavigation { get; set; }
+
+    public virtual NguoiDung? MaNguoiDungNavigation { get; set; }
 }
