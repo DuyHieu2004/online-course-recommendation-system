@@ -53,6 +53,11 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<ThongBao> ThongBaos { get; set; }
     public virtual DbSet<ThongBaoKhoaHoc> ThongBaoKhoaHocs { get; set; }
 
+    public virtual DbSet<BaiKiemTra> BaiKiemTras { get; set; }
+    public virtual DbSet<CauHoi> CauHois { get; set; }
+    public virtual DbSet<LuaChon> LuaChons { get; set; }
+    public virtual DbSet<KetQuaKiemTra> KetQuaKiemTras { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<BaiHoc>(entity =>
@@ -392,6 +397,11 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.NgayKetThuc).HasColumnType("datetime");
             entity.Property(e => e.TieuDe).HasMaxLength(255);
         });
+
+        modelBuilder.Entity<BaiKiemTra>(entity => { entity.ToTable("BaiKiemTra"); });
+        modelBuilder.Entity<CauHoi>(entity => { entity.ToTable("CauHoi"); });
+        modelBuilder.Entity<LuaChon>(entity => { entity.ToTable("LuaChon"); });
+        modelBuilder.Entity<KetQuaKiemTra>(entity => { entity.ToTable("KetQuaKiemTra"); });
 
         OnModelCreatingPartial(modelBuilder);
     }
