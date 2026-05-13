@@ -1,137 +1,252 @@
-﻿### 1. create database with name is course
+### 1. Create database with name is course
 
-		map data from 2 file csv, which include Online_Courses_Full.csv and mock_user_interactio.csv
+Map data from n file csv
 
-### 2. command of cypher to create ralationship, node,...
+### 2. Command of cypher to create ralationship, node,...
 
-		#### Tạo Constraint (Chạy 1 lần trước khi Import):
-			```cypher
-				// Việc này sẽ khóa id của Course và User lại, đảm bảo Neo4j tuyệt đối không bao giờ tạo ra 2 node có cùng ID, 
-				đồng thời tăng tốc độ import lên gấp nhiều lần.
-				CREATE CONSTRAINT course_id IF NOT EXISTS FOR (c:Course) REQUIRE c.id IS UNIQUE;
-				CREATE CONSTRAINT user_id IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE;				
-			```
-		#### Import Online_Courses_Full.csv:
-			```cypher
-				// 1. Đọc file CSV khóa học
-				LOAD CSV WITH HEADERS FROM 'file:///Online_Courses_Full.csv' AS row
+#### Tạo Constraint (Chạy 1 lần trước khi Import):
+```cypher
+	// Việc này sẽ khóa id (hoặc thuộc tính định danh) của các Node lại, đảm bảo Neo4j tuyệt đối 
+	// không bao giờ tạo ra 2 node có cùng ID hoặc Tên, đồng thời tăng tốc độ import lên gấp nhiều lần.
 
-				// Bộ lọc rỗng
-				WITH row WHERE row.CourseID IS NOT NULL AND row.Category IS NOT NULL AND row.Instructors IS NOT NULL
+	CREATE CONSTRAINT khoahoc_id IF NOT EXISTS FOR (kh:KhoaHoc) REQUIRE kh.id IS UNIQUE;
+	CREATE CONSTRAINT nguoidung_id IF NOT EXISTS FOR (nd:NguoiDung) REQUIRE nd.id IS UNIQUE;
+	CREATE CONSTRAINT theloai_id IF NOT EXISTS FOR (tl:TheLoai) REQUIRE tl.id IS UNIQUE;
+	CREATE CONSTRAINT chude_ten IF NOT EXISTS FOR (cd:ChuDe) REQUIRE cd.ten IS UNIQUE;
+	CREATE CONSTRAINT loaichuongtrinh_ten IF NOT EXISTS FOR (lct:LoaiChuongTrinh) REQUIRE lct.ten IS UNIQUE;				
+```
+#### Tạo nodes và relationships:
+```cypher
+	// ========================================================================
+	// BƯỚC 1: IMPORT THỂ LOẠI (Từ file TheLoai.csv)
+	// ========================================================================
+	LOAD CSV WITH HEADERS FROM 'file:///TheLoai.csv' AS row
+	WITH row WHERE row.MaTheLoai IS NOT NULL
 
-				// --- BỘ LỌC LOẠI BỎ TRÙNG LẶP ---
-				// Gom nhóm theo Title. Nếu file CSV có 5 dòng trùng Title, nó chỉ lấy cấu trúc của dòng đầu tiên để import
-				WITH row.Title AS courseTitle, collect(row)[0] AS row
+	// Tạo nút Thể loại
+	MERGE (tl:TheLoai {id: toInteger(row.MaTheLoai)})
+	SET tl.ten = row.Ten,
+		tl.moTa = row.MoTa;
 
-				// 2. Tạo nút Khóa học (Course)
-				MERGE (c:Course {id: toInteger(row.CourseID)})
-				SET c.title = courseTitle, 
-					c.url = row.URL, 
-					c.rating = toFloat(row.Rating)
 
-				// 3. Tạo nút Danh mục (Category)
-				MERGE (cat:Category {name: row.Category})
-				MERGE (c)-[:BELONGS_TO]->(cat)
+	// ========================================================================
+	// BƯỚC 2: IMPORT NGƯỜI DÙNG & GIẢNG VIÊN (Từ file NguoiDung.csv)
+	// ========================================================================
+	LOAD CSV WITH HEADERS FROM 'file:///NguoiDung.csv' AS row
+	WITH row WHERE row.MaNguoiDung IS NOT NULL
 
-				// 4. Tạo nút Giảng viên (Instructor) - Đã sửa lỗi nhiều giảng viên chung 1 node
-				WITH c, row 
-				UNWIND split(row.Instructors, ',') AS inst
-				WITH c, row, trim(inst) AS instructorName
-				WHERE instructorName <> ''
+	// Tạo nút Người Dùng gốc
+	MERGE (nd:NguoiDung {id: toInteger(row.MaNguoiDung)})
+	SET nd.ten = row.Ten, 
+		nd.email = row.Email,
+		nd.matKhau = row.MatKhau,
+		nd.linkAnhDaiDien = row.LinkAnhDaiDien,
+		nd.tieuSu = row.TieuSu,
+		nd.tinhTrang = row.TinhTrang,
+		nd.ngayTao = row.NgayTao,
+		nd.vaiTro = row.VaiTro
 
-				MERGE (i:Instructor {name: instructorName})
-				MERGE (i)-[:CONDUCTS]->(c)
+	// Dùng FOREACH để gán thêm nhãn (Label) tùy thuộc vào Vai Trò của họ
+	FOREACH (ignoreMe IN CASE WHEN row.VaiTro = 'GiaoVien' THEN [1] ELSE [] END | SET nd:GiangVien)
+	FOREACH (ignoreMe IN CASE WHEN row.VaiTro = 'HocVien' THEN [1] ELSE [] END | SET nd:HocVien);
 
-				// 5. Tạo nút Topic (Từ cột Skills)
-				WITH c, row
-				WHERE row.Skills IS NOT NULL
-				UNWIND split(row.Skills, ',') AS skill
-				WITH c, trim(skill) AS topicName
-				WHERE topicName <> ''
 
-				MERGE (t:Topic {name: topicName})
-				MERGE (c)-[:HAS_TOPIC]->(t)
-			```
+	// ========================================================================
+	// BƯỚC 3: IMPORT KHÓA HỌC, CHỦ ĐỀ & LOẠI CHƯƠNG TRÌNH (Từ file KhoaHoc.csv)
+	// ========================================================================
+	LOAD CSV WITH HEADERS FROM 'file:///KhoaHoc.csv' AS row
 
-		#### Import mock_user_interactio.csv:
-			```cypher
-				// 1. Đọc file CSV tương tác người dùng
-				LOAD CSV WITH HEADERS FROM 'file:///mock_user_interactions.csv' AS row
+	// Bộ lọc rỗng
+	WITH row WHERE row.MaKhoaHoc IS NOT NULL AND row.MaTheLoai IS NOT NULL
 
-				// 2. Lọc dữ liệu rỗng
-				WITH row WHERE row.UserID IS NOT NULL AND row.CourseID IS NOT NULL AND row.Rating IS NOT NULL
+	// --- BỘ LỌC LOẠI BỎ TRÙNG LẶP ---
+	// Gom nhóm theo TieuDe, lấy cấu trúc dòng đầu tiên
+	WITH row.TieuDe AS tieuDeKhoaHoc, collect(row)[0] AS row
 
-				// --- LỌC TRÙNG LẶP TƯƠNG TÁC ---
-				// Đảm bảo 1 UserID và 1 CourseID chỉ lấy 1 dòng dữ liệu đánh giá CUỐI CÙNG
-				WITH row.UserID AS uID, row.CourseID AS cID, collect(row)[-1] AS row
+	// 1. Tạo nút Khóa học (KhoaHoc)
+	MERGE (kh:KhoaHoc {id: toInteger(row.MaKhoaHoc)})
+	SET kh.tieuDe = tieuDeKhoaHoc, 
+		kh.tieuDePhu = row.TieuDePhu,
+		kh.moTa = row.MoTa,
+		kh.giaGoc = toFloat(row.GiaGoc),
+		kh.tinhTrang = row.TinhTrang,
+		kh.urlAnh = row.AnhURL, 
+		kh.danhGiaTrungBinh = toFloat(row.TBDanhGia),
+		kh.ngayTao = row.NgayTao,
+		kh.ngayCapNhat = row.NgayCapNhat,
+		kh.maKhuyenMai = toFloat(row.MaKhuyenMai)
 
-				// 3. Tạo hoặc khớp User
-				MERGE (u:User {id: toInteger(uID)})
+	// 2. Khớp với Thể loại (đã tạo ở bước 1) và tạo liên kết
+	WITH kh, row
+	MATCH (tl:TheLoai {id: toInteger(row.MaTheLoai)})
+	MERGE (kh)-[:THUOC_VE]->(tl)
 
-				WITH u, row, cID
+	// 3. Tạo nút Chủ đề (Từ cột KiNang)
+	WITH kh, row
+	WHERE row.KiNang IS NOT NULL
+	UNWIND split(row.KiNang, ',') AS kiNang
+	WITH kh, row, trim(kiNang) AS tenChuDe
+	WHERE tenChuDe <> ''
 
-				// 4. Khớp Course
-				// Những khóa học bị loại bỏ do trùng lặp (ở bước tạo Course) sẽ không được MATCH và lệnh sẽ an toàn bỏ qua
-				MATCH (c:Course {id: toInteger(cID)})
+	MERGE (cd:ChuDe {ten: tenChuDe})
+	MERGE (kh)-[:CO_CHU_DE]->(cd)
 
-				// 5. Tạo mũi tên (Chỉ MERGE mũi tên)
-				MERGE (u)-[r:RATED]->(c)
+	// 4. Tạo nút Loại chương trình (Từ cột Program Type)
+	// Dùng WITH DISTINCT để gộp lại 1 dòng cho mỗi khóa học, tránh bị nhân bản số lượng do UNWIND ở trên
+	WITH DISTINCT kh, row
+	WHERE row.`Program Type` IS NOT NULL
+	UNWIND split(row.`Program Type`, ',') AS loai
+	WITH kh, trim(loai) AS tenLoai
+	WHERE tenLoai <> ''
 
-				// 6. CẬP NHẬT RATING lấy từ dòng dữ liệu cuối cùng của user đó
-				SET r.rating = toInteger(row.Rating)
-			```
+	MERGE (lct:LoaiChuongTrinh {ten: tenLoai})
+	MERGE (kh)-[:THUOC_LOAI_CHUONG_TRINH]->(lct);
+
+
+	// ========================================================================
+	// BƯỚC 4: LIÊN KẾT GIẢNG VIÊN VÀ KHÓA HỌC (Từ file GiangVien_KhoaHoc.csv)
+	// ========================================================================
+	LOAD CSV WITH HEADERS FROM 'file:///GiangVien_KhoaHoc.csv' AS row
+	WITH row WHERE row.MaKhoaHoc IS NOT NULL AND row.MaGiangVien IS NOT NULL
+
+	// Khớp Khóa học và Giảng viên (Dùng nhãn GiangVien đã gán ở bước 2)
+	MATCH (kh:KhoaHoc {id: toInteger(row.MaKhoaHoc)})
+	MATCH (gv:GiangVien {id: toInteger(row.MaGiangVien)})
+
+	// Tạo liên kết Giảng Dạy
+	MERGE (gv)-[gd:GIANG_DAY]->(kh)
+	SET gd.laGiangVienChinh = toInteger(row.LaGiangVienChinh),
+		gd.tyLeDoanhThu = toFloat(row.TyLeDoanhThu);
+
+
+	// ========================================================================
+	// BƯỚC 5: IMPORT ĐÁNH GIÁ CỦA NGƯỜI DÙNG (Từ file DanhGia.csv)
+	// ========================================================================
+	LOAD CSV WITH HEADERS FROM 'file:///DanhGia.csv' AS row
+	WITH row WHERE row.MaNguoiDung IS NOT NULL AND row.MaKhoaHoc IS NOT NULL AND row.Rating IS NOT NULL
+
+	// --- LỌC TRÙNG LẶP ĐÁNH GIÁ ---
+	// Đảm bảo 1 Người dùng và 1 Khóa học chỉ lấy 1 dòng dữ liệu đánh giá CUỐI CÙNG
+	WITH row.MaNguoiDung AS maND, row.MaKhoaHoc AS maKH, collect(row)[-1] AS row
+
+	// Khớp Người dùng và Khóa học
+	MATCH (nd:NguoiDung {id: toInteger(maND)})
+	MATCH (kh:KhoaHoc {id: toInteger(maKH)})
+
+	// Tạo liên kết Đánh giá và lưu các thuộc tính liên quan
+	MERGE (nd)-[dg:DANH_GIA]->(kh)
+	SET dg.maDanhGia = toInteger(row.MaDanhGia),
+		dg.diem = toFloat(row.Rating), 
+		dg.binhLuan = row.BinhLuan,
+		dg.ngayDanhGia = row.NgayDanhGia,
+		dg.thich = toInteger(row.Thich);
+```
+
 		
 ### 3. Access in Controller/RecommendationController.cs, change password or set up password on your NeO4J.
 
-#   4. Content-based
-        ### Bước 1: Xóa dữ liệu cũ (Cleanup)
-			```cypher
-				// 1. Tương ứng với hàm deleteContentSimilarRelationships
-				MATCH ()-[r:CONTENT_SIMILAR]-()
-				DELETE r;
+### 4. Content-based
+#### Bước 1: Xóa dữ liệu cũ (Cleanup)
+```cypher
+// 1. Tương ứng với hàm deleteContentSimilarRelationships
+MATCH ()-[r:CONTENT_SIMILAR]-()
+DELETE r;
 
-				// 2. Tương ứng với hàm deleteProjection
-				// Xóa projection có tên 'contentGraph' nếu nó đang tồn tại
-				CALL gds.graph.drop('contentGraph', false);
-			```
-		### Bước 2: Tạo đồ thị ảo (Graph Projection)
-			```cypher
-				CALL gds.graph.project(
-					'contentGraph',
-					['Course','Topic'],
-					['HAS_TOPIC']
-				);
-			```
-		### Bước 3: Chạy thuật toán Node Similarity
-			```cypher
-				CALL gds.nodeSimilarity.write('contentGraph', {
-					nodeLabels:['Course','Topic'],
-					writeRelationshipType: 'CONTENT_SIMILAR',
-					writeProperty: 'score',
-					similarityCutoff: 0.5
-				});
-			```
-		### A. Tìm các Course tương tự một Course cụ thể (Tương ứng getSimilarItems)
-			```cypher
-				MATCH (i:Course {id: 23})-[r:CONTENT_SIMILAR]-(q:Course)
-				WHERE r.score >= 0.5
-				RETURN DISTINCT q
-				LIMIT 10;
-			```
-		### B. Gợi ý theo hồ sơ User (Tương ứng getProfilePageItems)
-			```cypher
-				MATCH (u:User {id: 1})-[r:RATED]->(i:Course)
-				WITH i, COLLECT(i) as ratedItems, (r.rating - 1) / 4.0 as normalizedRating
-				ORDER BY normalizedRating DESC
-				LIMIT 5
+// 2. Tương ứng với hàm deleteProjection
+// Xóa projection có tên 'contentGraph' nếu nó đang tồn tại
+CALL gds.graph.drop('contentGraph', false);
+```
+#### Bước 2: Tạo đồ thị ảo (Graph Projection)
+```cypher
+CALL gds.graph.project(
+    'contentGraph',
+    ['KhoaHoc', 'ChuDe', 'LoaiChuongTrinh'],
+    ['CO_CHU_DE', 'THUOC_LOAI_CHUONG_TRINH']
+);
+```
+#### Bước 3: Chạy thuật toán Node Similarity
+```cypher
+CALL gds.nodeSimilarity.write('contentGraph', {
+	nodeLabels:['KhoaHoc', 'ChuDe'],
+	writeRelationshipType: 'CONTENT_SIMILAR',
+	writeProperty: 'score',
+	similarityCutoff: 0.3
+});
+```
+#### A. Tìm các Course tương tự một Course cụ thể (Tương ứng getSimilarItems)
+```cypher
+// BƯỚC 1: Tìm các khóa học có nội dung tương tự với khóa học đang xem
+MATCH (khGoc:KhoaHoc {id: $courseId})-[rel:CONTENT_SIMILAR]-(q:KhoaHoc)
 
-				MATCH (i)-[rel:CONTENT_SIMILAR]-(q:Course)
-				WHERE NOT q IN ratedItems
-				WITH q, rel.score + 1.5 * normalizedRating as simScore
-				ORDER BY simScore DESC
-				WITH DISTINCT q, simScore
-				LIMIT 10
-				RETURN q.id as itemId, q.title as title, simScore as score;
-			```
-		
+// BƯỚC 2: Tìm các người dùng đã đánh giá khóa học được gợi ý (để đo đám đông tham gia)
+MATCH (nd:NguoiDung)-[dg_q:DANH_GIA]->(q)
+WITH q, 
+		rel.score AS contentScore, 
+		count(dg_q) AS soLuongDanhGia, 
+		q.danhGiaTrungBinh AS saoTrungBinh
+WHERE soLuongDanhGia > 0
+
+// BƯỚC 3: Tính điểm tổng hợp (Công thức Trọng số cho Khóa học cụ thể)
+// Ở đây không có rating của user nên chia lại trọng số:
+// - contentScore (50%): Mức độ giống nội dung chủ đề và chương trình
+// - saoTrungBinh (25%): Chất lượng cao
+// - log10(soLuongDanhGia) (25%): Độ phổ biến / Số người tham gia
+WITH q, 
+		soLuongDanhGia, 
+		saoTrungBinh,
+		(contentScore * 0.5) + ((saoTrungBinh / 5.0) * 0.25) + (log10(soLuongDanhGia + 1) * 0.25) AS simScore
+
+ORDER BY simScore DESC
+LIMIT 10
+
+RETURN q.id AS CourseId, 
+		q.tieuDe AS Title, 
+		simScore AS Score, 
+		soLuongDanhGia AS TotalReviews, 
+		saoTrungBinh AS AverageRating";
+```
+#### B. Gợi ý theo hồ sơ User (Tương ứng getProfilePageItems)
+```cypher
+// BƯỚC 1: Lấy danh sách ID khóa học user đã học để loại trừ (không gợi ý lại)
+MATCH (nd:NguoiDung {id: $userId})-[:DANH_GIA]->(khDaHoc:KhoaHoc)
+WITH collect(khDaHoc.id) AS ratedCourseIds
+
+// BƯỚC 2: Lấy 5 khóa học user thích nhất làm 'Hồ sơ sở thích'
+MATCH (nd:NguoiDung {id: $userId})-[dg:DANH_GIA]->(kh:KhoaHoc)
+WITH ratedCourseIds, kh, (dg.diem / 5.0) AS normalizedRating
+ORDER BY normalizedRating DESC
+LIMIT 5
+
+// BƯỚC 3: Tìm các khóa học tương tự về Nội dung (Chủ đề & Program Type từ GDS)
+MATCH (kh)-[rel:CONTENT_SIMILAR]-(q:KhoaHoc)
+WHERE NOT q.id IN ratedCourseIds
+
+// BƯỚC 4: Tính toán Độ phổ biến (Đám đông) và Chất lượng (Điểm cao)
+MATCH (aiDo:NguoiDung)-[dg_q:DANH_GIA]->(q)
+WITH q, 
+		rel.score AS contentScore, 
+		normalizedRating, 
+		count(dg_q) AS soLuongDanhGia, 
+		q.danhGiaTrungBinh AS saoTrungBinh
+WHERE soLuongDanhGia > 0 // Đảm bảo khóa học có người học
+
+// BƯỚC 5: Chấm điểm tổng hợp (Công thức Trọng số)
+// - contentScore (40%): Mức độ giống nội dung
+// - normalizedRating (20%): Mức độ user thích khóa học gốc
+// - saoTrungBinh (20%): Điểm sao trung bình cao
+// - log10(soLuongDanhGia) (20%): Thưởng điểm cho khóa học có đông học viên
+WITH q, 
+		soLuongDanhGia, 
+		saoTrungBinh,
+		(contentScore * 0.4) + (normalizedRating * 0.2) + ((saoTrungBinh / 5.0) * 0.2) + (log10(soLuongDanhGia + 1) * 0.2) AS simScore
+
+// Nhóm lại để tránh trùng lặp nếu q được gợi ý từ nhiều khóa gốc khác nhau
+WITH q.id AS CourseId, q.tieuDe AS Title, max(simScore) AS FinalScore, soLuongDanhGia, saoTrungBinh
+ORDER BY FinalScore DESC
+LIMIT 10
+
+RETURN CourseId, Title, FinalScore AS Score, soLuongDanhGia AS TotalReviews, saoTrungBinh AS AverageRating";
+
+```
+
 		
