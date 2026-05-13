@@ -398,6 +398,11 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.TieuDe).HasMaxLength(255);
         });
 
+        modelBuilder.Entity<BaiKiemTra>(entity => { entity.ToTable("BaiKiemTra"); });
+        modelBuilder.Entity<CauHoi>(entity => { entity.ToTable("CauHoi"); });
+        modelBuilder.Entity<LuaChon>(entity => { entity.ToTable("LuaChon"); });
+        modelBuilder.Entity<KetQuaKiemTra>(entity => { entity.ToTable("KetQuaKiemTra"); });
+
         OnModelCreatingPartial(modelBuilder);
     }
 
