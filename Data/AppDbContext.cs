@@ -53,6 +53,11 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<ThongBao> ThongBaos { get; set; }
     public virtual DbSet<ThongBaoKhoaHoc> ThongBaoKhoaHocs { get; set; }
 
+    public virtual DbSet<BaiKiemTra> BaiKiemTras { get; set; }
+    public virtual DbSet<CauHoi> CauHois { get; set; }
+    public virtual DbSet<LuaChon> LuaChons { get; set; }
+    public virtual DbSet<KetQuaKiemTra> KetQuaKiemTras { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<BaiHoc>(entity =>
