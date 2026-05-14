@@ -99,6 +99,45 @@ namespace online_course_recommendation_system.Controllers
             _context.ChiTietGioHangs.RemoveRange(cart.ChiTietGioHangs);
             await _context.SaveChangesAsync();
 
+            var user = await _context.NguoiDungs.FindAsync(userId.Value);
+            if (user != null)
+            {
+                // Đếm tổng số khóa học đã mua thành công
+                int totalCourses = await _context.TienDos.CountAsync(t => t.MaNguoiDung == userId.Value);
+
+                // Lấy các mốc hạng từ DB (Sắp xếp từ cao xuống thấp: Kim Cương -> Vàng -> Bạc)
+                var danhSachHang = await _context.HangThanhViens
+                    .OrderByDescending(h => h.SoKhoaHocToiThieu)
+                    .ToListAsync();
+
+                // Tìm hạng phù hợp nhất
+                var matchedTier = danhSachHang.FirstOrDefault(h => totalCourses >= h.SoKhoaHocToiThieu);
+                string newTierName = matchedTier != null ? matchedTier.TenHang : "Thường";
+                string currentTierName = user.HangThanhVien ?? "Thường";
+
+                // Nếu học viên được THĂNG HẠNG
+                if (newTierName != currentTierName && matchedTier != null)
+                {
+                    user.HangThanhVien = newTierName; // Cập nhật hạng mới
+
+                    // Tìm mã voucher của hạng này
+                    var voucher = await _context.VoucherHangs.FirstOrDefaultAsync(v => v.MaHang == matchedTier.MaHang);
+                    if (voucher != null)
+                    {
+                        // Gửi thông báo tặng mã cho học viên
+                        _context.ThongBaos.Add(new ThongBao
+                        {
+                            MaNguoiDung = userId.Value,
+                            TieuDe = $"🎉 Chúc mừng bạn thăng hạng {newTierName}!",
+                            NoiDung = $"Tuyệt vời! Bạn đã mở khóa hạng {newTierName}. Tặng bạn mã giảm giá đặc quyền: {voucher.MaCode} ({voucher.TieuDe}). Hãy sử dụng cho lần mua tiếp theo nhé!",
+                            NgayTao = DateTime.Now,
+                            DaDoc = false
+                        });
+                    }
+                }
+                await _context.SaveChangesAsync();
+            }
+
             return Ok(new
             {
                 message = "Thanh toán thành công!",
@@ -184,6 +223,27 @@ namespace online_course_recommendation_system.Controllers
                 .ToListAsync();
 
             return Ok(new { totalCount, page, pageSize, data = orders });
+        }
+
+        // ③ GET /api/orders/my-tier — Lấy thông tin hạng thành viên của user
+        [HttpGet("my-tier")]
+        public async Task<IActionResult> GetMyTier()
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null)
+                return Unauthorized(new { message = "Token không hợp lệ." });
+
+            var user = await _context.NguoiDungs.FindAsync(userId.Value);
+            int totalCourses = await _context.TienDos.CountAsync(t => t.MaNguoiDung == userId.Value);
+            
+            var tatCaHang = await _context.HangThanhViens.OrderBy(h => h.SoKhoaHocToiThieu).ToListAsync();
+
+            return Ok(new
+            {
+                hangHienTai = user?.HangThanhVien ?? "Thường",
+                soKhoaHocDaMua = totalCourses,
+                chiTietCacHang = tatCaHang.Select(h => new { h.TenHang, h.SoKhoaHocToiThieu, h.PhanTramUuDai })
+            });
         }
 
         private int? GetUserIdFromToken()

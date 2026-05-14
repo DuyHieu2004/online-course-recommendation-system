@@ -37,6 +37,8 @@ public partial class KhoaHoc
 
     public int? ThoiGianChoPhepTre { get; set; }
 
+    public string? TrinhDo { get; set; }
+
     public virtual ICollection<ChiTietGioHang> ChiTietGioHangs { get; set; } = new List<ChiTietGioHang>();
 
     public virtual ICollection<ChiTietHoaDon> ChiTietHoaDons { get; set; } = new List<ChiTietHoaDon>();
