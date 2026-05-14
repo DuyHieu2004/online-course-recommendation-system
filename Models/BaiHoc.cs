@@ -15,6 +15,7 @@ public partial class BaiHoc
 
     public string? LyThuyet { get; set; }
 
+    public string? LinkTaiLieu { get; set; }
 
     public virtual Chuong? MaChuongNavigation { get; set; }
 
