@@ -31,6 +31,12 @@ public partial class KhoaHoc
 
     public int? MaKhuyenMai { get; set; }
 
+<<<<<<< HEAD
+=======
+    public int? ThoiGianHocDuKien { get; set; }
+
+    public int? ThoiGianChoPhepTre { get; set; } 
+>>>>>>> 73ba9fa9bddf38899450799fe5f22a8280bb4f01
     public bool IsDeleted { get; set; }
 
     public int? ThoiGianHocDuKien { get; set; }
