@@ -1,10 +1,14 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using online_course_recommendation_system.Configurations;
 using online_course_recommendation_system.Data;
 using online_course_recommendation_system.DTO;
+using online_course_recommendation_system.Models;
 using System.IO;
 using System.Text.Json;
+using Neo4j.Driver;
+using Microsoft.Extensions.Options;
 
 namespace online_course_recommendation_system.Controllers
 {
@@ -15,12 +19,21 @@ namespace online_course_recommendation_system.Controllers
         private readonly AppDbContext _context;
         private readonly Microsoft.AspNetCore.Hosting.IWebHostEnvironment _env;
         private readonly online_course_recommendation_system.Service.ICloudinaryService _cloudinaryService;
+        private readonly IDriver _neo4jDriver;
+        private readonly Neo4jSettings _neo4jSettings;
 
-        public UsersController(AppDbContext context, Microsoft.AspNetCore.Hosting.IWebHostEnvironment env, online_course_recommendation_system.Service.ICloudinaryService cloudinaryService)
+        public UsersController(
+            AppDbContext context, 
+            Microsoft.AspNetCore.Hosting.IWebHostEnvironment env, 
+            online_course_recommendation_system.Service.ICloudinaryService cloudinaryService,
+            IDriver neo4jDriver,
+            IOptions<Neo4jSettings> neo4jOptions)
         {
             _context = context;
             _env = env;
             _cloudinaryService = cloudinaryService;
+            _neo4jDriver = neo4jDriver;
+            _neo4jSettings = neo4jOptions.Value;
         }
 
         [HttpGet("ping")]
@@ -389,6 +402,78 @@ namespace online_course_recommendation_system.Controllers
             await _context.SaveChangesAsync();
 
             return Ok(new { message = "Đã đánh dấu đọc." });
+        }
+
+        // ⑪ GET /api/users/interests — Lấy danh sách sở thích (thể loại) của người dùng
+        [Authorize]
+        [HttpGet("interests")]
+        public async Task<IActionResult> GetMyInterests()
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            Console.WriteLine($"[API] Đang lấy sở thích cho User ID: {userId}");
+
+            var interests = await _context.SoThichNguoiDungs
+                .Where(s => s.MaNguoiDung == userId.Value)
+                .Select(s => new {
+                    s.MaTheLoai,
+                    TenTheLoai = s.MaTheLoaiNavigation.Ten
+                })
+                .ToListAsync();
+
+            return Ok(interests);
+        }
+
+        // ⑫ POST /api/users/interests — Cập nhật danh sách sở thích
+        [Authorize]
+        [HttpPost("interests")]
+        public async Task<IActionResult> UpdateMyInterests([FromBody] List<int> categoryIds)
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            // 1. Xóa sở thích cũ trong SQL
+            var oldInterests = _context.SoThichNguoiDungs.Where(s => s.MaNguoiDung == userId.Value);
+            _context.SoThichNguoiDungs.RemoveRange(oldInterests);
+
+            // 2. Thêm sở thích mới
+            foreach (var catId in categoryIds)
+            {
+                _context.SoThichNguoiDungs.Add(new SoThichNguoiDung
+                {
+                    MaNguoiDung = userId.Value,
+                    MaTheLoai = catId,
+                    NgayTao = DateTime.Now
+                });
+            }
+            await _context.SaveChangesAsync();
+
+            // 3. Đồng bộ sang Neo4j
+            try
+            {
+                await using var session = _neo4jDriver.AsyncSession(o => o.WithDatabase(_neo4jSettings.Database));
+                
+                // Xóa các quan hệ QUAN_TAM cũ
+                await session.RunAsync("MATCH (u:NguoiDung {id: $userId})-[r:QUAN_TAM]->() DELETE r", new { userId = userId.Value });
+                
+                // Thêm quan hệ QUAN_TAM mới
+                if (categoryIds.Any())
+                {
+                    await session.RunAsync(@"
+                        MERGE (u:NguoiDung {id: $userId})
+                        WITH u
+                        MATCH (t:TheLoai) WHERE t.id IN $catIds
+                        MERGE (u)-[:QUAN_TAM]->(t)", 
+                        new { userId = userId.Value, catIds = categoryIds });
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Neo4j Sync Error] Interests update failed for user {userId}: {ex.Message}");
+            }
+
+            return Ok(new { message = "Cập nhật sở thích thành công!" });
         }
 
         private object GetDefaultSettings(string vaiTro)
