@@ -47,10 +47,8 @@ namespace online_course_recommendation_system.Controller
             {
                 using (var client = new SmtpClient(request.Smtp.Host, request.Smtp.Port))
                 {
-                    client.UseDefaultCredentials = false; // Phải để false trước khi gán Credentials
                     client.Credentials = new NetworkCredential(request.Smtp.FromEmail, request.Smtp.Password);
                     client.EnableSsl = request.Smtp.EnableSsl;
-                    client.DeliveryMethod = SmtpDeliveryMethod.Network;
 
                     var mailMessage = new MailMessage
                     {

@@ -116,6 +116,7 @@ namespace online_course_recommendation_system.Controllers
             });
         }
 
+        // ② GET /api/courses/{id} — Chi tiết khóa học
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
@@ -160,13 +161,7 @@ namespace online_course_recommendation_system.Controllers
                         {
                             c.MaChuong,
                             c.TieuDe,
-                            SoBaiHoc = c.BaiHocs.Count,
-                            BaiHocs = c.BaiHocs.Select(b => new {
-                                b.MaBaiHoc,
-                                b.LyThuyet,
-                                b.LinkVideo,
-                                b.LinkTaiLieu
-                            })
+                            SoBaiHoc = c.BaiHocs.Count
                         }),
                         DanhGia = k.DanhGia.OrderByDescending(d => d.NgayDanhGia).Select(d => new
                         {
@@ -200,19 +195,11 @@ namespace online_course_recommendation_system.Controllers
                 bool isCompleted = false;
                 object? userReview = null;
 
-                bool isEnrolled = false;
-                bool isExpired = false;
                 if (userId.HasValue)
                 {
                     var tienDo = await _context.TienDos
                         .FirstOrDefaultAsync(t => t.MaNguoiDung == userId.Value && t.MaKhoaHoc == id);
-                    
-                    if (tienDo != null)
-                    {
-                        isExpired = tienDo.NgayKetThuc != null && tienDo.NgayKetThuc < DateTime.Now;
-                        isEnrolled = !isExpired; // Nếu hết hạn thì coi như chưa đăng ký (để hiện nút Mua)
-                        isCompleted = (tienDo?.PhanTramTienDo ?? 0) >= 100;
-                    }
+                    isCompleted = (tienDo?.PhanTramTienDo ?? 0) >= 100;
 
                     var review = await _context.DanhGia
                         .FirstOrDefaultAsync(d => d.MaNguoiDung == userId.Value && d.MaKhoaHoc == id);
@@ -231,8 +218,6 @@ namespace online_course_recommendation_system.Controllers
                 return Ok(new
                 {
                     course,
-                    isEnrolled,
-                    isExpired,
                     isCompleted,
                     userReview
                 });
@@ -270,7 +255,6 @@ namespace online_course_recommendation_system.Controllers
                         b.MaBaiHoc,
                         b.LyThuyet,
                         b.LinkVideo,
-                        b.LinkTaiLieu,
                         b.BaiTap
                     })
                 })
