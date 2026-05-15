@@ -6,6 +6,9 @@ using online_course_recommendation_system.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using online_course_recommendation_system.Service;
+using Neo4j.Driver;
+using online_course_recommendation_system.Configurations;
+using Microsoft.Extensions.Options;
 
 namespace online_course_recommendation_system.Controllers
 {
@@ -17,12 +20,16 @@ namespace online_course_recommendation_system.Controllers
         private readonly AppDbContext _context;
         private readonly IWebHostEnvironment _env;
         private readonly ICloudinaryService _cloudinaryService;
+        private readonly IDriver _neo4jDriver;
+        private readonly Neo4jSettings _neo4jSettings;
 
-        public InstructorController(AppDbContext context, IWebHostEnvironment env, ICloudinaryService cloudinaryService)
+        public InstructorController(AppDbContext context, IWebHostEnvironment env, ICloudinaryService cloudinaryService, IDriver neo4jDriver, IOptions<Neo4jSettings> neo4jOptions)
         {
             _context = context;
             _env = env;
             _cloudinaryService = cloudinaryService;
+            _neo4jDriver = neo4jDriver;
+            _neo4jSettings = neo4jOptions.Value;
         }
 
         // ① GET /api/instructor/courses — Khóa học của giảng viên
@@ -233,6 +240,28 @@ namespace online_course_recommendation_system.Controllers
                 });
                 await _context.SaveChangesAsync();
 
+                // Sync to Neo4j
+                try {
+                    var session = _neo4jDriver.AsyncSession(o => o.WithDatabase(_neo4jSettings.Database));
+                    try {
+                        await session.ExecuteWriteAsync(async tx => {
+                            // Create Course node
+                            await tx.RunAsync("MERGE (kh:KhoaHoc {id: $id}) SET kh.tieuDe = $tieuDe, kh.urlAnh = $urlAnh, kh.giaGoc = $giaGoc", 
+                                new { id = course.MaKhoaHoc, tieuDe = course.TieuDe, urlAnh = course.AnhUrl, giaGoc = (double)(course.GiaGoc ?? 0) });
+                            
+                            // Link to Category
+                            if (course.MaTheLoai.HasValue) {
+                                await tx.RunAsync("MATCH (kh:KhoaHoc {id: $khId}), (t:TheLoai {id: $tId}) MERGE (kh)-[:THUOC_THE_LOAI]->(t)", 
+                                    new { khId = course.MaKhoaHoc, tId = course.MaTheLoai.Value });
+                            }
+                        });
+                    } finally {
+                        await session.CloseAsync();
+                    }
+                } catch (Exception neoEx) {
+                    Console.WriteLine($"[Neo4j Sync Error] Failed to sync created course {course.MaKhoaHoc}: {neoEx.Message}");
+                }
+
                 return Ok(new { message = "Tạo khóa học thành công.", courseId = course.MaKhoaHoc });
             }
             catch (Exception ex)
@@ -279,6 +308,29 @@ namespace online_course_recommendation_system.Controllers
             course.NgayCapNhat = DateTime.Now;
 
             await _context.SaveChangesAsync();
+
+            // Sync to Neo4j
+            try {
+                var session = _neo4jDriver.AsyncSession(o => o.WithDatabase(_neo4jSettings.Database));
+                try {
+                    await session.ExecuteWriteAsync(async tx => {
+                        // Update Course node
+                        await tx.RunAsync("MERGE (kh:KhoaHoc {id: $id}) SET kh.tieuDe = $tieuDe, kh.urlAnh = $urlAnh, kh.giaGoc = $giaGoc", 
+                            new { id = id, tieuDe = course.TieuDe, urlAnh = course.AnhUrl, giaGoc = (double)(course.GiaGoc ?? 0) });
+                        
+                        // Update Category relationship
+                        if (course.MaTheLoai.HasValue) {
+                            await tx.RunAsync("MATCH (kh:KhoaHoc {id: $khId}) OPTIONAL MATCH (kh)-[r:THUOC_THE_LOAI]->() DELETE r", new { khId = id });
+                            await tx.RunAsync("MATCH (kh:KhoaHoc {id: $khId}), (t:TheLoai {id: $tId}) MERGE (kh)-[:THUOC_THE_LOAI]->(t)", 
+                                new { khId = id, tId = course.MaTheLoai.Value });
+                        }
+                    });
+                } finally {
+                    await session.CloseAsync();
+                }
+            } catch (Exception neoEx) {
+                Console.WriteLine($"[Neo4j Sync Error] Failed to sync updated course {id}: {neoEx.Message}");
+            }
 
             return Ok(new { message = "Cập nhật khóa học thành công." });
             }
@@ -352,8 +404,7 @@ namespace online_course_recommendation_system.Controllers
             var userId = GetUserIdFromToken();
             if (userId == null) return Unauthorized();
 
-            // Kiểm tra chương này có thuộc khóa học mà instructor đang dạy không
-            var chapter = await _context.Chuongs.Include(c => c.MaKhoaHocNavigation).FirstOrDefaultAsync(c => c.MaChuong == chapterId);
+            var chapter = await _context.Chuongs.FindAsync(chapterId);
             if (chapter == null) return NotFound("Chương không tồn tại.");
 
             var isOwner = await _context.GiangVienKhoaHocs.AnyAsync(gv => gv.MaGiangVien == userId.Value && gv.MaKhoaHoc == chapter.MaKhoaHoc);
@@ -371,8 +422,61 @@ namespace online_course_recommendation_system.Controllers
             return Ok(new { message = "Thêm bài học thành công.", lessonId = lesson.MaBaiHoc });
         }
 
+        // ⑦.1 PUT /api/instructor/chapters/{id} — Cập nhật chương
+        [HttpPut("chapters/{id}")]
+        public async Task<IActionResult> UpdateChapter(int id, [FromBody] CreateChapterRequest request)
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var chapter = await _context.Chuongs.FindAsync(id);
+            if (chapter == null) return NotFound("Chương không tồn tại.");
+
+            var isOwner = await _context.GiangVienKhoaHocs.AnyAsync(gv => gv.MaGiangVien == userId.Value && gv.MaKhoaHoc == chapter.MaKhoaHoc);
+            if (!isOwner) return Forbid();
+
+            chapter.TieuDe = request.TieuDe;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Cập nhật chương thành công." });
+        }
+
+        // ⑦.2 PUT /api/instructor/lessons/{id} — Cập nhật bài học (bao gồm chuyển chương)
+        [HttpPut("lessons/{id}")]
+        public async Task<IActionResult> UpdateLesson(int id, [FromBody] UpdateLessonRequest request)
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var lesson = await _context.BaiHocs.Include(b => b.MaChuongNavigation).FirstOrDefaultAsync(b => b.MaBaiHoc == id);
+            if (lesson == null) return NotFound("Bài học không tồn tại.");
+
+            var isOwner = await _context.GiangVienKhoaHocs.AnyAsync(gv => gv.MaGiangVien == userId.Value && gv.MaKhoaHoc == lesson.MaChuongNavigation.MaKhoaHoc);
+            if (!isOwner) return Forbid();
+
+            if (request.MaChuong.HasValue && request.MaChuong.Value != lesson.MaChuong)
+            {
+                // Kiểm tra chương mới có thuộc cùng khóa học không
+                var targetChapter = await _context.Chuongs.FindAsync(request.MaChuong.Value);
+                if (targetChapter == null || targetChapter.MaKhoaHoc != lesson.MaChuongNavigation.MaKhoaHoc)
+                {
+                    return BadRequest("Chương đích không hợp lệ hoặc không thuộc khóa học này.");
+                }
+                lesson.MaChuong = request.MaChuong.Value;
+            }
+
+            if (request.LyThuyet != null) lesson.LyThuyet = request.LyThuyet;
+            if (request.BaiTap != null) lesson.BaiTap = request.BaiTap;
+            
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Cập nhật bài học thành công." });
+        }
+
         // ⑧ POST /api/instructor/lessons/{lessonId}/video — Upload video cho bài học
         [HttpPost("lessons/{lessonId}/video")]
+        [DisableRequestSizeLimit]
+        [RequestFormLimits(MultipartBodyLengthLimit = 524288000)] // 500MB
         public async Task<IActionResult> UploadVideo(int lessonId, IFormFile file)
         {
             if (file == null || file.Length == 0)
@@ -395,6 +499,78 @@ namespace online_course_recommendation_system.Controllers
             await _context.SaveChangesAsync();
 
             return Ok(new { message = "Upload video thành công.", linkVideo = lesson.LinkVideo });
+        }
+
+        // ⑧.5 POST /api/instructor/lessons/{lessonId}/pdf — Upload tài liệu (PDF) cho bài học
+        [HttpPost("lessons/{lessonId}/pdf")]
+        [DisableRequestSizeLimit]
+        [RequestFormLimits(MultipartBodyLengthLimit = 524288000)] // 500MB
+        public async Task<IActionResult> UploadPdf(int lessonId, IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+                return BadRequest("Vui lòng chọn file tài liệu.");
+
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var lesson = await _context.BaiHocs.Include(b => b.MaChuongNavigation).FirstOrDefaultAsync(b => b.MaBaiHoc == lessonId);
+            if (lesson == null || lesson.MaChuongNavigation == null) return NotFound("Bài học không tồn tại.");
+
+            var isOwner = await _context.GiangVienKhoaHocs.AnyAsync(gv => gv.MaGiangVien == userId.Value && gv.MaKhoaHoc == lesson.MaChuongNavigation.MaKhoaHoc);
+            if (!isOwner) return Forbid();
+
+            var uploadResult = await _cloudinaryService.UploadFileAsync(file, "courses/documents");
+            if (string.IsNullOrEmpty(uploadResult))
+                return BadRequest(new { message = "Lỗi khi upload tài liệu lên Cloudinary." });
+
+            lesson.LinkTaiLieu = uploadResult;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Upload tài liệu thành công.", linkTaiLieu = lesson.LinkTaiLieu });
+        }
+
+        // ⑧.6 DELETE /api/instructor/lessons/{id} — Xóa bài học
+        [HttpDelete("lessons/{id}")]
+        public async Task<IActionResult> DeleteLesson(int id)
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var lesson = await _context.BaiHocs.Include(b => b.MaChuongNavigation).FirstOrDefaultAsync(b => b.MaBaiHoc == id);
+            if (lesson == null) return NotFound("Bài học không tồn tại.");
+
+            var isOwner = await _context.GiangVienKhoaHocs.AnyAsync(gv => gv.MaGiangVien == userId.Value && gv.MaKhoaHoc == lesson.MaChuongNavigation.MaKhoaHoc);
+            if (!isOwner) return Forbid();
+
+            _context.BaiHocs.Remove(lesson);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Xóa bài học thành công." });
+        }
+
+        // ⑧.7 DELETE /api/instructor/chapters/{id} — Xóa chương
+        [HttpDelete("chapters/{id}")]
+        public async Task<IActionResult> DeleteChapter(int id)
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var chapter = await _context.Chuongs.Include(c => c.BaiHocs).FirstOrDefaultAsync(c => c.MaChuong == id);
+            if (chapter == null) return NotFound("Chương không tồn tại.");
+
+            var isOwner = await _context.GiangVienKhoaHocs.AnyAsync(gv => gv.MaGiangVien == userId.Value && gv.MaKhoaHoc == chapter.MaKhoaHoc);
+            if (!isOwner) return Forbid();
+
+            // Xóa tất cả bài học trong chương trước (Cascading)
+            if (chapter.BaiHocs != null && chapter.BaiHocs.Any())
+            {
+                _context.BaiHocs.RemoveRange(chapter.BaiHocs);
+            }
+
+            _context.Chuongs.Remove(chapter);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Xóa chương thành công." });
         }
 
         // ⑨ POST /api/instructor/courses/{courseId}/cover — Upload ảnh bìa khóa học
@@ -518,6 +694,16 @@ namespace online_course_recommendation_system.Controllers
 
             await _context.SaveChangesAsync();
 
+            // Sync to Neo4j
+            var session = _neo4jDriver.AsyncSession(o => o.WithDatabase(_neo4jSettings.Database));
+            try {
+                await session.ExecuteWriteAsync(async tx => {
+                    await tx.RunAsync("MATCH (kh:KhoaHoc {id: $id}) DETACH DELETE kh", new { id = id });
+                });
+            } finally {
+                await session.CloseAsync();
+            }
+
             return Ok(new { message = "Xóa khóa học thành công." });
         }
 
@@ -554,9 +740,12 @@ namespace online_course_recommendation_system.Controllers
 
     public class CreateLessonRequest
     {
+        public int? MaChuong { get; set; }
         public string? LyThuyet { get; set; }
         public string? BaiTap { get; set; }
     }
+
+    public class UpdateLessonRequest : CreateLessonRequest { }
 
     public class CreateAnnouncementRequest
     {
