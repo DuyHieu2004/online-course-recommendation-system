@@ -23,6 +23,25 @@ namespace online_course_recommendation_system.Controllers
             _cloudinaryService = cloudinaryService;
         }
 
+        [HttpPost("upload")]
+        public async Task<IActionResult> UploadImage(IFormFile file)
+        {
+            if (file == null || file.Length == 0) 
+                return BadRequest("File không hợp lệ.");
+
+            // Gọi thẳng CloudinaryService đã được inject ở Constructor
+            var uploadFolder = "elearning_avatars";
+            var url = await _cloudinaryService.UploadFileAsync(file, uploadFolder);
+
+            if (string.IsNullOrEmpty(url))
+            {
+                return BadRequest(new { message = "Lỗi khi tải ảnh lên Cloudinary." });
+            }
+
+            // Trả về url an toàn (HTTPS) cho Flutter hứng
+            return Ok(new { url });
+        }
+
         [HttpGet("ping")]
         public IActionResult Ping() => Ok("pong");
 
@@ -123,6 +142,7 @@ namespace online_course_recommendation_system.Controllers
             return Ok(new { message = "Cập nhật profile thành công!", data = MapToProfileDto(user) });
         }
 
+      
         // ②.1 POST /api/users/profile/degree — Up hồ sơ bằng cấp (Giảng viên)
         [Authorize]
         [HttpPost("profile/degree")]
