@@ -37,7 +37,12 @@ builder.Services.AddSingleton<IDriver>(sp =>
 
     return GraphDatabase.Driver(
         config.Uri,
-        AuthTokens.Basic(config.Username, config.Password)
+        AuthTokens.Basic(config.Username, config.Password),
+        o => {
+            if (config.Uri.StartsWith("bolt://")) {
+                o.WithEncryptionLevel(EncryptionLevel.None);
+            }
+        }
     );
 });
 
@@ -48,15 +53,25 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
     {
-        policy.WithOrigins("http://localhost:4200")
+        policy.AllowAnyOrigin()
               .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+              .AllowAnyMethod();
     });
 });
 
 // Thêm Service Cloudinary
 builder.Services.AddScoped<online_course_recommendation_system.Service.ICloudinaryService, online_course_recommendation_system.Service.CloudinaryService>();
+
+// Thêm cấu hình giới hạn dung lượng file (500MB)
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 524288000; // 500MB
+});
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 524288000; // 500MB
+});
 
 // 1. Thêm các Controllers vào hệ thống
 builder.Services.AddControllers()
@@ -129,10 +144,65 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Docker"))
 }
 
 app.UseStaticFiles();
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
 app.UseCors("AllowAngular");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// --- TỰ ĐỘNG ĐỒNG BỘ NEO4J KHI KHỞI ĐỘNG (Dành cho Dev/Fix) ---
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<online_course_recommendation_system.Data.AppDbContext>();
+    var driver = scope.ServiceProvider.GetRequiredService<IDriver>();
+    var settings = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<online_course_recommendation_system.Configurations.Neo4jSettings>>().Value;
+
+    try {
+        var categories = await context.TheLoais.ToListAsync();
+        var courses = await context.KhoaHocs.ToListAsync();
+        await using var session = driver.AsyncSession(o => o.WithDatabase(settings.Database));
+        await session.ExecuteWriteAsync(async tx => {
+            foreach (var cat in categories) {
+                await tx.RunAsync("MERGE (t:TheLoai {id: $id}) SET t.ten = $ten", new { id = cat.MaTheLoai, ten = cat.Ten });
+            }
+            foreach (var kh in courses) {
+                await tx.RunAsync(@"
+                    MERGE (kh:KhoaHoc {id: $id}) 
+                    SET kh.tieuDe = $tieuDe, 
+                        kh.urlAnh = $urlAnh, 
+                        kh.giaGoc = $giaGoc,
+                        kh.tbdanhGia = $tbdanhGia", 
+                    new { 
+                        id = kh.MaKhoaHoc, 
+                        tieuDe = kh.TieuDe, 
+                        urlAnh = kh.AnhUrl, 
+                        giaGoc = (double)(kh.GiaGoc ?? 0),
+                        tbdanhGia = kh.TbdanhGia ?? 0.0
+                    });
+                if (kh.MaTheLoai.HasValue) {
+                    await tx.RunAsync("MATCH (kh:KhoaHoc {id: $khId}), (t:TheLoai {id: $tId}) MERGE (kh)-[:THUOC_THE_LOAI]->(t)", 
+                        new { khId = kh.MaKhoaHoc, tId = kh.MaTheLoai.Value });
+                }
+            }
+        });
+        // 3. Sync Interests
+        var interests = await context.SoThichNguoiDungs.ToListAsync();
+        Console.WriteLine($"Đang đồng bộ {interests.Count} mối quan tâm của người dùng...");
+        await session.ExecuteWriteAsync(async tx => {
+            foreach (var st in interests) {
+                await tx.RunAsync(@"
+                    MERGE (u:NguoiDung {id: $uId})
+                    WITH u
+                    MATCH (t:TheLoai {id: $tId})
+                    MERGE (u)-[:QUAN_TAM]->(t)", 
+                    new { uId = st.MaNguoiDung, tId = st.MaTheLoai });
+            }
+        });
+
+        Console.WriteLine($"[Auto-Sync] Hoàn tất đồng bộ dữ liệu sang Neo4j.");
+    } catch (Exception ex) {
+        Console.WriteLine($"[Auto-Sync Error] {ex.Message}");
+    }
+}
 
 app.Run();
