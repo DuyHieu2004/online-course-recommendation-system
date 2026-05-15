@@ -43,7 +43,6 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<NguoiDung> NguoiDungs { get; set; }
 
     public virtual DbSet<TheLoai> TheLoais { get; set; }
-    public virtual DbSet<SoThichNguoiDung> SoThichNguoiDungs { get; set; }
 
     public virtual DbSet<TienDo> TienDos { get; set; }
 
@@ -68,7 +67,6 @@ public partial class AppDbContext : DbContext
             entity.ToTable("BaiHoc");
 
             entity.Property(e => e.LinkVideo).IsUnicode(false);
-            entity.Property(e => e.LinkTaiLieu).IsUnicode(false).HasMaxLength(1000);
 
             entity.HasOne(d => d.MaChuongNavigation).WithMany(p => p.BaiHocs)
                 .HasForeignKey(d => d.MaChuong)
@@ -314,23 +312,6 @@ public partial class AppDbContext : DbContext
             entity.ToTable("TheLoai");
 
             entity.Property(e => e.Ten).HasMaxLength(100);
-        });
-
-        modelBuilder.Entity<SoThichNguoiDung>(entity =>
-        {
-            entity.HasKey(e => e.MaSoThich);
-            entity.ToTable("SoThichNguoiDung");
-            entity.Property(e => e.NgayTao).HasDefaultValueSql("(getdate())").HasColumnType("datetime");
-            
-            entity.HasOne(d => d.MaNguoiDungNavigation)
-                .WithMany()
-                .HasForeignKey(d => d.MaNguoiDung)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(d => d.MaTheLoaiNavigation)
-                .WithMany()
-                .HasForeignKey(d => d.MaTheLoai)
-                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<TienDo>(entity =>

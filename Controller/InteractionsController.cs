@@ -3,9 +3,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using online_course_recommendation_system.Data;
 using online_course_recommendation_system.Models;
-using Neo4j.Driver;
-using online_course_recommendation_system.Configurations;
-using Microsoft.Extensions.Options;
 
 namespace online_course_recommendation_system.Controllers
 {
@@ -15,14 +12,10 @@ namespace online_course_recommendation_system.Controllers
     public class InteractionsController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly IDriver _neo4jDriver;
-        private readonly Neo4jSettings _neo4jSettings;
 
-        public InteractionsController(AppDbContext context, IDriver neo4jDriver, IOptions<Neo4jSettings> neo4jOptions)
+        public InteractionsController(AppDbContext context)
         {
             _context = context;
-            _neo4jDriver = neo4jDriver;
-            _neo4jSettings = neo4jOptions.Value;
         }
 
         // ① POST /api/interactions/rate — Đánh giá khóa học
@@ -76,24 +69,6 @@ namespace online_course_recommendation_system.Controllers
                 {
                     course.TbdanhGia = Math.Round(avg, 1);
                     await _context.SaveChangesAsync();
-                }
-
-                // Sync to Neo4j
-                try {
-                    var session = _neo4jDriver.AsyncSession(o => o.WithDatabase(_neo4jSettings.Database));
-                    try {
-                        await session.ExecuteWriteAsync(async tx => {
-                            await tx.RunAsync(@"
-                                MATCH (u:NguoiDung {id: $userId}), (kh:KhoaHoc {id: $khId})
-                                MERGE (u)-[r:DANH_GIA]->(kh)
-                                SET r.rating = $rating, r.ngayDanhGia = datetime()
-                            ", new { userId = userId.Value, khId = request.MaKhoaHoc, rating = request.Rating });
-                        });
-                    } finally {
-                        await session.CloseAsync();
-                    }
-                } catch (Exception neoEx) {
-                    Console.WriteLine($"[Neo4j Sync Error] Rating sync failed for user {userId}: {neoEx.Message}");
                 }
 
                 return Ok(new { message = "Đánh giá thành công! Cảm ơn bạn." });

@@ -4,9 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using online_course_recommendation_system.Data;
 using online_course_recommendation_system.DTO;
 using online_course_recommendation_system.Models;
-using Neo4j.Driver;
-using online_course_recommendation_system.Configurations;
-using Microsoft.Extensions.Options;
 
 namespace online_course_recommendation_system.Controllers
 {
@@ -15,14 +12,10 @@ namespace online_course_recommendation_system.Controllers
     public class CategoriesController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly IDriver _neo4jDriver;
-        private readonly Neo4jSettings _neo4jSettings;
 
-        public CategoriesController(AppDbContext context, IDriver neo4jDriver, IOptions<Neo4jSettings> neo4jOptions)
+        public CategoriesController(AppDbContext context)
         {
             _context = context;
-            _neo4jDriver = neo4jDriver;
-            _neo4jSettings = neo4jOptions.Value;
         }
 
         // ① GET /api/categories — Lấy tất cả danh mục (Phân trang)
@@ -103,17 +96,6 @@ namespace online_course_recommendation_system.Controllers
             _context.TheLoais.Add(category);
             await _context.SaveChangesAsync();
 
-            // Sync to Neo4j
-            var session = _neo4jDriver.AsyncSession(o => o.WithDatabase(_neo4jSettings.Database));
-            try {
-                await session.ExecuteWriteAsync(async tx => {
-                    await tx.RunAsync("MERGE (t:TheLoai {id: $id}) SET t.ten = $ten", 
-                        new { id = category.MaTheLoai, ten = category.Ten });
-                });
-            } finally {
-                await session.CloseAsync();
-            }
-
             return Ok(new
             {
                 message = "Tạo danh mục thành công!",
@@ -137,17 +119,6 @@ namespace online_course_recommendation_system.Controllers
             category.Ten = request.Ten;
             category.MoTa = request.MoTa;
             await _context.SaveChangesAsync();
-
-            // Sync to Neo4j
-            var session = _neo4jDriver.AsyncSession(o => o.WithDatabase(_neo4jSettings.Database));
-            try {
-                await session.ExecuteWriteAsync(async tx => {
-                    await tx.RunAsync("MERGE (t:TheLoai {id: $id}) SET t.ten = $ten", 
-                        new { id = category.MaTheLoai, ten = category.Ten });
-                });
-            } finally {
-                await session.CloseAsync();
-            }
 
             return Ok(new
             {
@@ -173,20 +144,6 @@ namespace online_course_recommendation_system.Controllers
 
             _context.TheLoais.Remove(category);
             await _context.SaveChangesAsync();
-
-            // Sync to Neo4j
-            try {
-                var session = _neo4jDriver.AsyncSession(o => o.WithDatabase(_neo4jSettings.Database));
-                try {
-                    await session.ExecuteWriteAsync(async tx => {
-                        await tx.RunAsync("MATCH (t:TheLoai {id: $id}) DETACH DELETE t", new { id = id });
-                    });
-                } finally {
-                    await session.CloseAsync();
-                }
-            } catch (Exception neoEx) {
-                Console.WriteLine($"[Neo4j Sync Error] Failed to delete category from Neo4j {id}: {neoEx.Message}");
-            }
 
             return Ok(new { message = $"Đã xóa danh mục '{category.Ten}'." });
         }
