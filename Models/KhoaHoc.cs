@@ -31,9 +31,9 @@ public partial class KhoaHoc
 
     public int? MaKhuyenMai { get; set; }
 
-    public int? ThoiGianHocDuKien { get; set; } // Tính bằng ngày
+    public int? ThoiGianHocDuKien { get; set; }
 
-    public int? ThoiGianChoPhepTre { get; set; } // Tính bằng ngày
+    public int? ThoiGianChoPhepTre { get; set; } 
     public bool IsDeleted { get; set; }
     public string? TrinhDo { get; set; }
 
