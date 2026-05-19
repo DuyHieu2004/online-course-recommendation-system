@@ -48,9 +48,10 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins("http://localhost:4200")
               .AllowAnyHeader()
-              .AllowAnyMethod();
+              .AllowAnyMethod()
+              .AllowCredentials();
     });
 });
 
@@ -128,7 +129,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Docker"))
 }
 
 app.UseStaticFiles();
-// app.UseHttpsRedirection();
+app.UseHttpsRedirection();
 app.UseCors("AllowAngular");
 app.UseAuthentication();
 app.UseAuthorization();

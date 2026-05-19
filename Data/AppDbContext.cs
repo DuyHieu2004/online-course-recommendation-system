@@ -62,6 +62,11 @@ public partial class AppDbContext : DbContext
 #warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
         => optionsBuilder.UseSqlServer("Server=localhost;Database=ELearning_DB;Trusted_Connection=True;TrustServerCertificate=True;");
 
+    public virtual DbSet<BaiKiemTra> BaiKiemTras { get; set; }
+    public virtual DbSet<CauHoi> CauHois { get; set; }
+    public virtual DbSet<LuaChon> LuaChons { get; set; }
+    public virtual DbSet<KetQuaKiemTra> KetQuaKiemTras { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<BaiHoc>(entity =>
@@ -453,6 +458,11 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.NgayKetThuc).HasColumnType("datetime");
             entity.Property(e => e.TieuDe).HasMaxLength(255);
         });
+
+        modelBuilder.Entity<BaiKiemTra>(entity => { entity.ToTable("BaiKiemTra"); });
+        modelBuilder.Entity<CauHoi>(entity => { entity.ToTable("CauHoi"); });
+        modelBuilder.Entity<LuaChon>(entity => { entity.ToTable("LuaChon"); });
+        modelBuilder.Entity<KetQuaKiemTra>(entity => { entity.ToTable("KetQuaKiemTra"); });
 
         OnModelCreatingPartial(modelBuilder);
     }
