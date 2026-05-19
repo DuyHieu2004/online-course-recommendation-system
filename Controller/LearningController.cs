@@ -18,6 +18,62 @@ namespace online_course_recommendation_system.Controllers
             _context = context;
         }
 
+        private async Task CheckAndNotifyExpirationsAsync(int userId)
+        {
+            var today = DateTime.Now;
+            var warningDate = today.AddMonths(1);
+
+            var tienDos = await _context.TienDos
+                .Include(t => t.MaKhoaHocNavigation)
+                .Where(t => t.MaNguoiDung == userId)
+                .ToListAsync();
+
+            bool hasChanges = false;
+
+            foreach (var t in tienDos)
+            {
+                if (t.NgayKetThuc == null) continue;
+
+                // 1. Nếu ĐÃ HẾT HẠN: Khóa bất kể đã xong hay chưa
+                if (t.NgayKetThuc.Value < today && t.TinhTrang == true)
+                {
+                    t.TinhTrang = false; 
+                    _context.ThongBaos.Add(new ThongBao {
+                        MaNguoiDung = userId,
+                        TieuDe = "⏳ Quyền truy cập khóa học đã hết",
+                        NoiDung = $"Khóa học '{t.MaKhoaHocNavigation?.TieuDe}' đã hết thời hạn 1 năm truy cập. Hệ thống đã đóng quyền xem lại bài học.",
+                        NgayTao = DateTime.Now
+                    });
+                }
+                // 2. Nếu SẮP HẾT HẠN: CHỈ thông báo cho người CHƯA HOÀN THÀNH (< 100%)
+                else if (t.NgayKetThuc.Value <= warningDate && t.NgayKetThuc.Value >= today 
+                        && t.TinhTrang == true && (t.PhanTramTienDo ?? 0) < 100)
+                {
+                    // Kiểm tra xem 7 ngày gần đây đã nhắc chưa (tránh spam)
+                    var daNhacNho = await _context.ThongBaos.AnyAsync(tb => 
+                        tb.MaNguoiDung == userId && 
+                        tb.TieuDe.Contains("Sắp hết hạn") && 
+                        tb.NoiDung.Contains(t.MaKhoaHocNavigation.TieuDe) &&
+                        tb.NgayTao > today.AddDays(-7));
+
+                    if (!daNhacNho)
+                    {
+                        _context.ThongBaos.Add(new ThongBao
+                        {
+                            MaNguoiDung = userId,
+                            TieuDe = "⚠️ Cảnh báo: Khóa học sắp hết hạn",
+                            NoiDung = $"Khóa học '{t.MaKhoaHocNavigation?.TieuDe}' sẽ hết hạn vào ngày {t.NgayKetThuc.Value:dd/MM/yyyy}. Hãy nhanh chóng hoàn thành nhé!",
+                            NgayTao = DateTime.Now,
+                            DaDoc = false
+                        });
+                        hasChanges = true;
+                    }
+                }
+            }
+
+            if (hasChanges) await _context.SaveChangesAsync();
+        }
+
         // ① GET /api/learning/my-courses — Khóa học đã đăng ký + tiến độ (Phân trang)
         [HttpGet("my-courses")]
         public async Task<IActionResult> GetMyCourses(
@@ -27,6 +83,8 @@ namespace online_course_recommendation_system.Controllers
             var userId = GetUserIdFromToken();
             if (userId == null)
                 return Unauthorized(new { message = "Token không hợp lệ." });
+
+            await CheckAndNotifyExpirationsAsync(userId.Value);
 
             var query = _context.TienDos
                 .Where(t => t.MaNguoiDung == userId.Value);
@@ -48,7 +106,7 @@ namespace online_course_recommendation_system.Controllers
                 {
                     t.MaTienDo,
                     t.PhanTramTienDo,
-                    TinhTrang = t.TinhTrang == true ? "Đang học" : "Chưa bắt đầu",
+                    TinhTrang = t.TinhTrang == true ? "Đang học" : "Đã hết hạn",
                     t.NgayThamGia,
                     KhoaHoc = t.MaKhoaHocNavigation == null ? null : new
                     {
@@ -91,6 +149,12 @@ namespace online_course_recommendation_system.Controllers
 
             if (tienDo == null)
                 return StatusCode(403, new { message = "Bạn chưa đăng ký khóa học này." });
+
+            // THÊM ĐOẠN NÀY ĐỂ CHẶN TRUY CẬP
+            if (tienDo.NgayKetThuc.HasValue && tienDo.NgayKetThuc.Value < DateTime.Now)
+            {
+                return StatusCode(403, new { message = "Khóa học này đã hết hạn. Vui lòng mua lại để giữ nguyên tiến độ và tiếp tục học." });
+            }
 
             var completedLessonIds = tienDo.TienDoBaiHocs
                 .Where(x => x.DaHoanThanh == true)

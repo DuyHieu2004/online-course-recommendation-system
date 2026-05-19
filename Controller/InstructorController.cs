@@ -54,11 +54,56 @@ namespace online_course_recommendation_system.Controllers
                         ? gv.MaKhoaHocNavigation.MaTheLoaiNavigation.Ten : null,
                     SoHocVien = gv.MaKhoaHocNavigation.TienDos.Count,
                     SoLuongDanhGia = gv.MaKhoaHocNavigation.DanhGia.Count,
-                    gv.LaGiangVienChinh
+                    gv.LaGiangVienChinh,
+                    // Thêm tính toán Sentiment Stats
+                    sentimentStats = new 
+                    {
+                        // Nhóm Tích cực
+                        pos = gv.MaKhoaHocNavigation.DanhGia.Count(d => 
+                            d.Emotion == "Enjoyment" || d.Emotion == "Surprise"),
+                        
+                        // Nhóm Tiêu cực
+                        neg = gv.MaKhoaHocNavigation.DanhGia.Count(d => 
+                            d.Emotion == "Sadness" || d.Emotion == "Anger" || 
+                            d.Emotion == "Disgust" || d.Emotion == "Fear"),
+                        
+                        // Nhóm Trung tính
+                        neu = gv.MaKhoaHocNavigation.DanhGia.Count(d => 
+                            d.Emotion == "Other" || string.IsNullOrEmpty(d.Emotion)),
+                        
+                        // Phần trăm tích cực
+                        percentPos = gv.MaKhoaHocNavigation.DanhGia.Count() > 0 
+                            ? Math.Round((double)gv.MaKhoaHocNavigation.DanhGia.Count(d => d.Emotion == "Enjoyment" || d.Emotion == "Surprise") 
+                            / gv.MaKhoaHocNavigation.DanhGia.Count() * 100, 1) 
+                            : 0
+                    }
                 })
                 .ToListAsync();
 
             return Ok(courses);
+        }
+
+        [HttpGet("courses/{courseId}/sentiment-details")]
+        public async Task<IActionResult> GetCourseSentimentDetails(int courseId)
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var isOwner = await _context.GiangVienKhoaHocs.AnyAsync(gv => gv.MaGiangVien == userId.Value && gv.MaKhoaHoc == courseId);
+            if (!isOwner) return Forbid();
+
+            var comments = await _context.DanhGia
+                .Where(d => d.MaKhoaHoc == courseId && !string.IsNullOrEmpty(d.BinhLuan))
+                .OrderByDescending(d => d.NgayDanhGia)
+                .Select(d => new
+                {
+                    text = d.BinhLuan,
+                    rating = d.Rating,
+                    emotion = d.Emotion ?? "Other"
+                })
+                .ToListAsync();
+
+            return Ok(comments);
         }
 
         // ② GET /api/instructor/students — Danh sách học viên
@@ -114,87 +159,151 @@ namespace online_course_recommendation_system.Controllers
 
         // ③ GET /api/instructor/stats — Thống kê tổng quan
         [HttpGet("stats")]
-        public async Task<IActionResult> GetStats()
+        public async Task<IActionResult> GetStats([FromQuery] string range = "30 ngày qua", [FromQuery] int? courseId = null)
         {
             var userId = GetUserIdFromToken();
-            if (userId == null)
-                return Unauthorized(new { message = "Token không hợp lệ." });
+            if (userId == null) return Unauthorized(new { message = "Token không hợp lệ." });
 
-            var courseIds = await _context.GiangVienKhoaHocs
-                .Where(gv => gv.MaGiangVien == userId.Value)
-                .Select(gv => gv.MaKhoaHoc)
-                .ToListAsync();
+            var courseIdsQuery = _context.GiangVienKhoaHocs.Where(gv => gv.MaGiangVien == userId.Value);
+            if (courseId.HasValue && courseId.Value > 0)
+                courseIdsQuery = courseIdsQuery.Where(gv => gv.MaKhoaHoc == courseId.Value);
+
+            var courseIds = await courseIdsQuery.Select(gv => gv.MaKhoaHoc).ToListAsync();
+
+            if (!courseIds.Any()) 
+                return Ok(new { tongKhoaHoc = 0, tongHocVien = 0, tbDanhGia = 0, tongDoanhThu = 0, tongDanhGia = 0 });
+
+            DateTime? startDate = range switch
+            {
+                "7 ngày qua" => DateTime.Now.AddDays(-7),
+                "30 ngày qua" => DateTime.Now.AddDays(-30),
+                "90 ngày qua" => DateTime.Now.AddDays(-90),
+                "Năm nay" => new DateTime(DateTime.Now.Year, 1, 1),
+                _ => null
+            };
 
             var tongKhoaHoc = courseIds.Count;
 
-            var tongHocVien = await _context.TienDos
-                .Where(t => t.MaKhoaHoc.HasValue && courseIds.Contains(t.MaKhoaHoc.Value))
-                .Select(t => t.MaNguoiDung)
-                .Distinct()
-                .CountAsync();
+            var tongHocVienQuery = _context.TienDos.Where(t => t.MaKhoaHoc.HasValue && courseIds.Contains(t.MaKhoaHoc.Value));
+            if (startDate.HasValue) tongHocVienQuery = tongHocVienQuery.Where(t => t.NgayThamGia >= startDate.Value);
+            var tongHocVien = await tongHocVienQuery.Select(t => t.MaNguoiDung).Distinct().CountAsync();
 
-            var tbDanhGia = await _context.DanhGia
-                .Where(d => d.MaKhoaHoc.HasValue && courseIds.Contains(d.MaKhoaHoc.Value) && d.Rating.HasValue)
-                .AverageAsync(d => (double?)d.Rating) ?? 0;
+            var danhGiaQuery = _context.DanhGia.Where(d => d.MaKhoaHoc.HasValue && courseIds.Contains(d.MaKhoaHoc.Value) && d.Rating.HasValue);
+            var allDanhGia = await danhGiaQuery.ToListAsync();
+            var latestDanhGia = allDanhGia.GroupBy(d => new { d.MaKhoaHoc, d.MaNguoiDung })
+                .Select(g => g.OrderByDescending(x => x.NgayDanhGia).FirstOrDefault()).Where(d => d != null).ToList();
 
-            var tongDoanhThuRaw = await _context.ChiTietHoaDons
-                .Where(ct => ct.MaKhoaHoc.HasValue && courseIds.Contains(ct.MaKhoaHoc.Value))
-                .SumAsync(ct => ct.Gia ?? 0);
-            
-            var tongDoanhThu = tongDoanhThuRaw * 0.7m; // Giảng viên nhận 70%
+            var filteredDanhGia = startDate.HasValue ? latestDanhGia.Where(d => d.NgayDanhGia.HasValue && d.NgayDanhGia.Value >= startDate.Value).ToList() : latestDanhGia;
+            var tbDanhGia = filteredDanhGia.Any() ? filteredDanhGia.Average(d => d.Rating.Value) : 0;
+            var tongDanhGia = filteredDanhGia.Count;
 
-            var tongDanhGia = await _context.DanhGia
-                .Where(d => d.MaKhoaHoc.HasValue && courseIds.Contains(d.MaKhoaHoc.Value))
-                .CountAsync();
+            var doanhThuQuery = _context.ChiTietHoaDons.Include(ct => ct.MaHoaDonNavigation)
+                .Where(ct => ct.MaKhoaHoc.HasValue && courseIds.Contains(ct.MaKhoaHoc.Value) && ct.MaHoaDonNavigation != null && ct.MaHoaDonNavigation.TinhTrangThanhToan == true);
+            if (startDate.HasValue) doanhThuQuery = doanhThuQuery.Where(ct => ct.MaHoaDonNavigation.NgayTao >= startDate.Value);
 
-            return Ok(new
-            {
-                tongKhoaHoc,
-                tongHocVien,
-                tbDanhGia = Math.Round(tbDanhGia, 1),
-                tongDoanhThu,
-                tongDanhGia
-            });
+            var tongDoanhThuRaw = await doanhThuQuery.SumAsync(ct => ct.Gia) ?? 0;
+            var tongDoanhThu = tongDoanhThuRaw * 0.7m;
+
+            return Ok(new { tongKhoaHoc, tongHocVien, tbDanhGia = Math.Round(tbDanhGia, 1), tongDoanhThu, tongDanhGia });
         }
 
-        // ③.5 GET /api/instructor/stats/revenue-series — Doanh thu theo tháng
+        // Thay thế API GetRevenueSeries cũ để hỗ trợ lọc theo khóa học
         [HttpGet("stats/revenue-series")]
-        public async Task<IActionResult> GetRevenueSeries([FromQuery] int year = 0)
+        public async Task<IActionResult> GetRevenueSeries([FromQuery] string range = "30 ngày qua", [FromQuery] int? courseId = null)
         {
             var userId = GetUserIdFromToken();
-            if (userId == null)
-                return Unauthorized(new { message = "Token không hợp lệ." });
+            if (userId == null) return Unauthorized();
 
-            if (year == 0) year = DateTime.Now.Year;
+            var courseIdsQuery = _context.GiangVienKhoaHocs.Where(gv => gv.MaGiangVien == userId.Value);
+            if (courseId.HasValue && courseId.Value > 0)
+                courseIdsQuery = courseIdsQuery.Where(gv => gv.MaKhoaHoc == courseId.Value);
 
-            var courseIds = await _context.GiangVienKhoaHocs
-                .Where(gv => gv.MaGiangVien == userId.Value)
-                .Select(gv => gv.MaKhoaHoc)
-                .ToListAsync();
+            var courseIds = await courseIdsQuery.Select(gv => gv.MaKhoaHoc).ToListAsync();
+            if (!courseIds.Any()) return Ok(new[] { new { Month = "Hiện tại", Revenue = 0 } });
 
-            var rawData = await _context.ChiTietHoaDons
-                .Include(ct => ct.MaHoaDonNavigation)
-                .Where(ct => ct.MaKhoaHoc.HasValue && courseIds.Contains(ct.MaKhoaHoc.Value) &&
-                             ct.MaHoaDonNavigation != null && ct.MaHoaDonNavigation.NgayTao.HasValue &&
-                             ct.MaHoaDonNavigation.NgayTao.Value.Year == year && 
-                             ct.MaHoaDonNavigation.TinhTrangThanhToan == true // chỉ tính đơn đã thanh toán
-                             )
-                .ToListAsync();
+            var query = _context.ChiTietHoaDons.Include(ct => ct.MaHoaDonNavigation)
+                .Where(ct => ct.MaKhoaHoc.HasValue && courseIds.Contains(ct.MaKhoaHoc.Value) && ct.MaHoaDonNavigation != null && ct.MaHoaDonNavigation.TinhTrangThanhToan == true);
 
-            var groupedData = rawData
-                .GroupBy(ct => ct.MaHoaDonNavigation!.NgayTao!.Value.Month)
-                .Select(g => new {
-                    MonthNum = g.Key,
-                    Revenue = g.Sum(ct => ct.Gia ?? 0)
-                })
-                .ToList();
+            var now = DateTime.Now;
+            DateTime? startDate = range switch {
+                "7 ngày qua" => now.AddDays(-7), "30 ngày qua" => now.AddDays(-30),
+                "90 ngày qua" => now.AddDays(-90), "Năm nay" => new DateTime(now.Year, 1, 1), _ => null
+            };
 
-            var result = Enumerable.Range(1, 12).Select(m => new {
-                Month = $"T{m}",
-                Revenue = groupedData.FirstOrDefault(d => d.MonthNum == m)?.Revenue ?? 0
-            });
+            if (startDate.HasValue) query = query.Where(ct => ct.MaHoaDonNavigation.NgayTao >= startDate.Value);
 
+            var rawData = await query.Select(ct => new {
+                NgayTao = ct.MaHoaDonNavigation.NgayTao.Value,
+                DoanhThuThuc = (ct.Gia ?? 0) * 0.7m
+            }).ToListAsync();
+
+            object result;
+            if (range == "7 ngày qua") {
+                var list = new List<object>();
+                for (int i = 6; i >= 0; i--) { var date = now.Date.AddDays(-i); list.Add(new { Month = date.ToString("dd/MM"), Revenue = rawData.Where(x => x.NgayTao.Date == date).Sum(x => x.DoanhThuThuc) }); }
+                result = list;
+            } else if (range == "30 ngày qua") {
+                var list = new List<object>();
+                for (int i = 4; i >= 1; i--) { var start = now.AddDays(-i * 7.5); var end = now.AddDays(-(i - 1) * 7.5); list.Add(new { Month = $"Tuần {5 - i}", Revenue = rawData.Where(x => x.NgayTao >= start && x.NgayTao < end).Sum(x => x.DoanhThuThuc) }); }
+                result = list;
+            } else if (range == "90 ngày qua") {
+                var list = new List<object>();
+                for (int i = 2; i >= 0; i--) { var m = now.AddMonths(-i); list.Add(new { Month = $"Tháng {m.Month}", Revenue = rawData.Where(x => x.NgayTao.Month == m.Month && x.NgayTao.Year == m.Year).Sum(x => x.DoanhThuThuc) }); }
+                result = list;
+            } else if (range == "Năm nay") {
+                var list = new List<object>();
+                for (int i = 1; i <= 12; i++) { list.Add(new { Month = $"T{i}", Revenue = rawData.Where(x => x.NgayTao.Month == i && x.NgayTao.Year == now.Year).Sum(x => x.DoanhThuThuc) }); }
+                result = list;
+            } else {
+                if (!rawData.Any()) result = new[] { new { Month = now.Year.ToString(), Revenue = 0 } };
+                else {
+                    var list = new List<object>(); int minYear = rawData.Min(x => x.NgayTao.Year);
+                    for (int y = minYear; y <= now.Year; y++) { list.Add(new { Month = y.ToString(), Revenue = rawData.Where(x => x.NgayTao.Year == y).Sum(x => x.DoanhThuThuc) }); }
+                    result = list;
+                }
+            }
             return Ok(result);
+        }
+
+        // THÊM MỚI TOÀN BỘ: API lấy danh sách giao dịch thanh toán chi tiết
+        [HttpGet("transactions")]
+        public async Task<IActionResult> GetTransactions([FromQuery] string range = "30 ngày qua", [FromQuery] int? courseId = null)
+        {
+            var userId = GetUserIdFromToken();
+            if (userId == null) return Unauthorized();
+
+            var courseIdsQuery = _context.GiangVienKhoaHocs.Where(gv => gv.MaGiangVien == userId.Value);
+            if (courseId.HasValue && courseId.Value > 0)
+                courseIdsQuery = courseIdsQuery.Where(gv => gv.MaKhoaHoc == courseId.Value);
+
+            var courseIds = await courseIdsQuery.Select(gv => gv.MaKhoaHoc).ToListAsync();
+
+            var query = _context.ChiTietHoaDons
+                .Include(ct => ct.MaHoaDonNavigation).ThenInclude(hd => hd.MaNguoiDungNavigation)
+                .Include(ct => ct.MaKhoaHocNavigation)
+                .Where(ct => ct.MaKhoaHoc.HasValue && courseIds.Contains(ct.MaKhoaHoc.Value) &&
+                             ct.MaHoaDonNavigation != null && ct.MaHoaDonNavigation.TinhTrangThanhToan == true);
+
+            var now = DateTime.Now;
+            DateTime? startDate = range switch {
+                "7 ngày qua" => now.AddDays(-7), "30 ngày qua" => now.AddDays(-30),
+                "90 ngày qua" => now.AddDays(-90), "Năm nay" => new DateTime(now.Year, 1, 1), _ => null
+            };
+            if (startDate.HasValue) query = query.Where(ct => ct.MaHoaDonNavigation.NgayTao >= startDate.Value);
+
+            var transactions = await query
+                .OrderByDescending(ct => ct.MaHoaDonNavigation.NgayTao)
+                .Select(ct => new {
+                    MaGiaoDich = ct.MaHoaDonNavigation.MaHoaDon,
+                    NgayTao = ct.MaHoaDonNavigation.NgayTao,
+                    KhoaHoc = ct.MaKhoaHocNavigation.TieuDe,
+                    NguoiMua = ct.MaHoaDonNavigation.MaNguoiDungNavigation.Ten,
+                    GiaGop = ct.Gia ?? 0,
+                    PhiNenTang = (ct.Gia ?? 0) * 0.3m,
+                    ThucNhan = (ct.Gia ?? 0) * 0.7m
+                }).ToListAsync();
+
+            return Ok(transactions);
         }
 
         // ④ POST /api/instructor/courses — Tạo khóa học mới

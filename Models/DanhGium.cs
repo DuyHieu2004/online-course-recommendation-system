@@ -19,6 +19,8 @@ public partial class DanhGium
 
     public int? MaNguoiDung { get; set; }
 
+    public string? Emotion { get; set; }
+
     public virtual KhoaHoc? MaKhoaHocNavigation { get; set; }
 
     public virtual NguoiDung? MaNguoiDungNavigation { get; set; }

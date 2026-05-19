@@ -32,6 +32,9 @@ namespace online_course_recommendation_system.Controllers
                         .ThenInclude(k => k!.MaTheLoaiNavigation)
                 .Include(g => g.ChiTietGioHangs)
                     .ThenInclude(ct => ct.MaKhoaHocNavigation)
+                        .ThenInclude(k => k!.MaKhuyenMaiNavigation)
+                .Include(g => g.ChiTietGioHangs)
+                    .ThenInclude(ct => ct.MaKhoaHocNavigation)
                         .ThenInclude(k => k!.GiangVienKhoaHocs)
                             .ThenInclude(gv => gv.MaGiangVienNavigation)
                 .Where(g => g.MaNguoiDung == userId.Value)
@@ -58,11 +61,26 @@ namespace online_course_recommendation_system.Controllers
                     GiangVien = ct.MaKhoaHocNavigation.GiangVienKhoaHocs
                         .Where(gv => gv.LaGiangVienChinh == true)
                         .Select(gv => gv.MaGiangVienNavigation.Ten)
-                        .FirstOrDefault()
+                        .FirstOrDefault(),
+
+                    MaKhuyenMaiNavigation = ct.MaKhoaHocNavigation.MaKhuyenMaiNavigation != null ? new {
+                        ct.MaKhoaHocNavigation.MaKhuyenMaiNavigation.PhanTramGiam,
+                        ct.MaKhoaHocNavigation.MaKhuyenMaiNavigation.NgayKetThuc
+                    } : null
                 }
             }).ToList();
 
-            var tongTien = items.Sum(i => i.Gia ?? i.KhoaHoc?.GiaGoc ?? 0);
+            var tongTien = items.Sum(i => {
+                decimal giaGoc = i.KhoaHoc?.GiaGoc ?? 0;
+                var km = i.KhoaHoc?.MaKhuyenMaiNavigation;
+                
+                // Kiểm tra nếu có khuyến mãi và chưa hết hạn
+                if (km != null && km.NgayKetThuc >= DateTime.Now) {
+                    // Tính giá sau khi giảm
+                    return giaGoc * (1m - (decimal)(km.PhanTramGiam / 100.0));
+                }
+                return giaGoc;
+            });
 
             return Ok(new { items, tongTien });
         }
@@ -101,10 +119,21 @@ namespace online_course_recommendation_system.Controllers
                 return BadRequest(new { message = "Khóa học đã có trong giỏ hàng." });
 
             // Kiểm tra đã mua (đã đăng ký học) chưa
-            var alreadyEnrolled = await _context.TienDos
-                .AnyAsync(t => t.MaNguoiDung == userId.Value && t.MaKhoaHoc == courseId);
-            if (alreadyEnrolled)
-                return BadRequest(new { message = "Bạn đã sở hữu khóa học này rồi." });
+            var enrollment = await _context.TienDos
+                .FirstOrDefaultAsync(t => t.MaNguoiDung == userId.Value && t.MaKhoaHoc == courseId);
+
+            if (enrollment != null)
+            {
+                if (enrollment.NgayKetThuc.HasValue && enrollment.NgayKetThuc.Value < DateTime.Now)
+                {
+                    // Khóa học đã hết hạn -> Cho phép mua tiếp (Đi tiếp xuống dưới)
+                }
+                else
+                {
+                    // Vẫn còn hạn -> Không cho mua
+                    return BadRequest(new { message = "Bạn đã sở hữu khóa học này và vẫn đang còn hạn sử dụng." });
+                }
+            }
 
             var cartItem = new ChiTietGioHang
             {

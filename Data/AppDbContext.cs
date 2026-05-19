@@ -158,6 +158,7 @@ public partial class AppDbContext : DbContext
                     tb.HasTrigger("trg_KiemTraDieuKienDanhGia");
                 });
 
+            entity.Property(e => e.Emotion).HasMaxLength(50);
             entity.Property(e => e.NgayDanhGia)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
@@ -222,10 +223,16 @@ public partial class AppDbContext : DbContext
 
             entity.ToTable("HoaDon");
 
+            entity.Property(e => e.MaVoucher)
+                .HasMaxLength(50)
+                .IsUnicode(false);
             entity.Property(e => e.NgayTao)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
             entity.Property(e => e.PhuongThucThanhToan).HasMaxLength(100);
+            entity.Property(e => e.SoTienGiam)
+                .HasDefaultValue(0m)
+                .HasColumnType("decimal(18, 2)");
             entity.Property(e => e.TinhTrangThanhToan).HasDefaultValue(false);
             entity.Property(e => e.TongTien).HasColumnType("decimal(18, 2)");
 
