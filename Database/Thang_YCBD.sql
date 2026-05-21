@@ -55,22 +55,22 @@ ORDER BY
 
 
 -- Ép các khóa học đang học dở của user 6651 có hạn chót là 15 ngày nữa (rơi vào vùng cảnh báo <= 1 tháng)
-UPDATE TienDo
-SET NgayKetThuc = DATEADD(day, 15, GETDATE())
-WHERE MaNguoiDung = 10502 
-  AND ISNULL(PhanTramTienDo, 0) < 100;
+-- UPDATE TienDo
+-- SET NgayKetThuc = DATEADD(day, 15, GETDATE())
+-- WHERE MaNguoiDung = 10502 
+--   AND ISNULL(PhanTramTienDo, 0) < 100;
 
 -- Thêm cột lưu Mã Voucher và Số Tiền Giảm vào bảng Hóa Đơn
 ALTER TABLE [dbo].[HoaDon] ADD [MaVoucher] VARCHAR(50) NULL;
 ALTER TABLE [dbo].[HoaDon] ADD [SoTienGiam] DECIMAL(18,2) DEFAULT 0;
 GO
 
-SELECT hd.*, cthd.*
-FROM HoaDon hd
-JOIN ChiTietHoaDon cthd
-    ON hd.MaHoaDon = cthd.MaHoaDon
-WHERE hd.MaHoaDon = (
-    SELECT TOP 1 MaHoaDon
-    FROM HoaDon
-    ORDER BY NgayTao DESC
-);
+-- SELECT hd.*, cthd.*
+-- FROM HoaDon hd
+-- JOIN ChiTietHoaDon cthd
+--     ON hd.MaHoaDon = cthd.MaHoaDon
+-- WHERE hd.MaHoaDon = (
+--     SELECT TOP 1 MaHoaDon
+--     FROM HoaDon
+--     ORDER BY NgayTao DESC
+-- );

@@ -1,23 +1,20 @@
-# Stage 1: Build
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# Sử dụng SDK .NET 9 để build
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /app
 
-# Copy csproj and restore as distinct layers
+# Copy csproj và restore dependencies
 COPY *.csproj ./
 RUN dotnet restore
 
-# Copy everything else and build
+# Copy toàn bộ code và build
 COPY . ./
 RUN dotnet publish -c Release -o out
 
-# Stage 2: Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+# Sử dụng ASP.NET runtime để chạy
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/out .
 
-# Expose port
-EXPOSE 5128
-ENV ASPNETCORE_URLS=http://+:5128
-ENV ASPNETCORE_ENVIRONMENT=Docker
-
+# Mở port cho API
+EXPOSE 8080
 ENTRYPOINT ["dotnet", "online-course-recommendation-system.dll"]
