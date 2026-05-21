@@ -164,6 +164,8 @@ namespace online_course_recommendation_system.Controllers
             var course = await _context.KhoaHocs
                 .Include(k => k.Chuongs)
                     .ThenInclude(c => c.BaiHocs)
+                .Include(k => k.Chuongs)
+                    .ThenInclude(c => c.BaiKiemTras)
                 .Include(k => k.GiangVienKhoaHocs)
                     .ThenInclude(gv => gv.MaGiangVienNavigation)
                 .FirstOrDefaultAsync(k => k.MaKhoaHoc == courseId);
@@ -190,7 +192,14 @@ namespace online_course_recommendation_system.Controllers
                         b.LyThuyet,
                         b.LinkVideo,
                         b.BaiTap,
+                        b.LinkTaiLieu,
                         DaHoanThanh = completedLessonIds.Contains(b.MaBaiHoc)
+                    }).ToList(),
+                    BaiKiemTras = c.BaiKiemTras.Select(q => new
+                    {
+                        q.MaBaiKiemTra,
+                        q.TieuDe,
+                        q.ThoiGianLamBai
                     }).ToList()
                 }).ToList()
             };
