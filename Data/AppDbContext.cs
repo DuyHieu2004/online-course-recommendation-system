@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using online_course_recommendation_system.Models;
@@ -32,6 +32,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<GioHang> GioHangs { get; set; }
 
+    public virtual DbSet<HangThanhVien> HangThanhViens { get; set; }
+
     public virtual DbSet<HoaDon> HoaDons { get; set; }
 
     public virtual DbSet<KhoaHoc> KhoaHocs { get; set; }
@@ -44,15 +46,17 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<TheLoai> TheLoais { get; set; }
 
+    public virtual DbSet<ThongBao> ThongBaos { get; set; }
+
+    public virtual DbSet<ThongBaoKhoaHoc> ThongBaoKhoaHocs { get; set; }
+
     public virtual DbSet<TienDo> TienDos { get; set; }
 
     public virtual DbSet<TienDoBaiHoc> TienDoBaiHocs { get; set; }
 
+    public virtual DbSet<VoucherHang> VoucherHangs { get; set; }
+
     public virtual DbSet<VwKhoaHocGiaThucTe> VwKhoaHocGiaThucTes { get; set; }
-
-    public virtual DbSet<ThongBao> ThongBaos { get; set; }
-    public virtual DbSet<ThongBaoKhoaHoc> ThongBaoKhoaHocs { get; set; }
-
     public virtual DbSet<BaiKiemTra> BaiKiemTras { get; set; }
     public virtual DbSet<CauHoi> CauHois { get; set; }
     public virtual DbSet<LuaChon> LuaChons { get; set; }
@@ -66,6 +70,9 @@ public partial class AppDbContext : DbContext
 
             entity.ToTable("BaiHoc");
 
+            entity.Property(e => e.LinkTaiLieu)
+                .HasMaxLength(1000)
+                .IsUnicode(false);
             entity.Property(e => e.LinkVideo).IsUnicode(false);
 
             entity.HasOne(d => d.MaChuongNavigation).WithMany(p => p.BaiHocs)
@@ -151,6 +158,7 @@ public partial class AppDbContext : DbContext
                     tb.HasTrigger("trg_KiemTraDieuKienDanhGia");
                 });
 
+            entity.Property(e => e.Emotion).HasMaxLength(50);
             entity.Property(e => e.NgayDanhGia)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
@@ -200,16 +208,31 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK__GioHang__MaNguoi__73BA3083");
         });
 
+        modelBuilder.Entity<HangThanhVien>(entity =>
+        {
+            entity.HasKey(e => e.MaHang).HasName("PK__HangThan__19C0DB1D64ADBC55");
+
+            entity.ToTable("HangThanhVien");
+
+            entity.Property(e => e.TenHang).HasMaxLength(50);
+        });
+
         modelBuilder.Entity<HoaDon>(entity =>
         {
             entity.HasKey(e => e.MaHoaDon).HasName("PK__HoaDon__835ED13B50CA0A6B");
 
             entity.ToTable("HoaDon");
 
+            entity.Property(e => e.MaVoucher)
+                .HasMaxLength(50)
+                .IsUnicode(false);
             entity.Property(e => e.NgayTao)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
             entity.Property(e => e.PhuongThucThanhToan).HasMaxLength(100);
+            entity.Property(e => e.SoTienGiam)
+                .HasDefaultValue(0m)
+                .HasColumnType("decimal(18, 2)");
             entity.Property(e => e.TinhTrangThanhToan).HasDefaultValue(false);
             entity.Property(e => e.TongTien).HasColumnType("decimal(18, 2)");
 
@@ -238,6 +261,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.TieuDe).HasMaxLength(255);
             entity.Property(e => e.TieuDePhu).HasMaxLength(255);
             entity.Property(e => e.TinhTrang).HasMaxLength(50);
+            entity.Property(e => e.TrinhDo).HasMaxLength(50);
 
             entity.HasOne(d => d.MaKhuyenMaiNavigation).WithMany(p => p.KhoaHocs)
                 .HasForeignKey(d => d.MaKhuyenMai)
@@ -293,6 +317,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Email)
                 .HasMaxLength(100)
                 .IsUnicode(false);
+            entity.Property(e => e.HangThanhVien)
+                .HasMaxLength(50)
+                .HasDefaultValue("Thường");
             entity.Property(e => e.LinkAnhDaiDien).IsUnicode(false);
             entity.Property(e => e.MatKhau)
                 .HasMaxLength(255)
@@ -314,16 +341,58 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Ten).HasMaxLength(100);
         });
 
+        modelBuilder.Entity<ThongBao>(entity =>
+        {
+            entity.HasKey(e => e.MaThongBao).HasName("PK__ThongBao__04DEB54EA9B34D35");
+
+            entity.ToTable("ThongBao");
+
+            entity.Property(e => e.NgayTao)
+                .HasDefaultValueSql("(getdate())")
+                .HasColumnType("datetime");
+            entity.Property(e => e.TieuDe).HasMaxLength(255);
+
+            entity.HasOne(d => d.MaNguoiDungNavigation).WithMany(p => p.ThongBaos)
+                .HasForeignKey(d => d.MaNguoiDung)
+                .HasConstraintName("FK_ThongBao_NguoiDung");
+        });
+
+        modelBuilder.Entity<ThongBaoKhoaHoc>(entity =>
+        {
+            entity.HasKey(e => e.MaThongBao).HasName("PK__ThongBao__04DEB54E057E25CB");
+
+            entity.ToTable("ThongBaoKhoaHoc");
+
+            entity.Property(e => e.DaDoc).HasDefaultValue(false);
+            entity.Property(e => e.LoaiThongBao)
+                .HasMaxLength(50)
+                .IsUnicode(false)
+                .HasDefaultValue("Course");
+            entity.Property(e => e.NgayTao)
+                .HasDefaultValueSql("(getdate())")
+                .HasColumnType("datetime");
+            entity.Property(e => e.TieuDe).HasMaxLength(255);
+
+            entity.HasOne(d => d.MaKhoaHocNavigation).WithMany(p => p.ThongBaoKhoaHocs)
+                .HasForeignKey(d => d.MaKhoaHoc)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK__ThongBaoK__MaKho__2B0A656D");
+
+            entity.HasOne(d => d.MaNguoiDungNavigation).WithMany(p => p.ThongBaoKhoaHocs)
+                .HasForeignKey(d => d.MaNguoiDung)
+                .HasConstraintName("FK__ThongBaoK__MaNgu__4B7734FF");
+        });
+
         modelBuilder.Entity<TienDo>(entity =>
         {
             entity.HasKey(e => e.MaTienDo).HasName("PK__TienDo__C5D04CAEAAF35E0B");
 
             entity.ToTable("TienDo");
 
+            entity.Property(e => e.NgayKetThuc).HasColumnType("datetime");
             entity.Property(e => e.NgayThamGia)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
-            entity.Property(e => e.NgayKetThuc).HasColumnType("datetime");
             entity.Property(e => e.PhanTramTienDo).HasDefaultValue(0.0);
             entity.Property(e => e.TinhTrang).HasDefaultValue(false);
 
@@ -334,23 +403,6 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.MaNguoiDungNavigation).WithMany(p => p.TienDos)
                 .HasForeignKey(d => d.MaNguoiDung)
                 .HasConstraintName("FK__TienDo__MaNguoiD__7A672E12");
-        });
-
-        modelBuilder.Entity<ThongBao>(entity =>
-        {
-            entity.HasKey(e => e.MaThongBao).HasName("PK_ThongBao");
-
-            entity.ToTable("ThongBao");
-
-            entity.Property(e => e.TieuDe).HasMaxLength(255);
-            entity.Property(e => e.NgayTao)
-                .HasDefaultValueSql("(getdate())")
-                .HasColumnType("datetime");
-            entity.Property(e => e.DaDoc).HasDefaultValue(false);
-
-            entity.HasOne(d => d.MaNguoiDungNavigation).WithMany(p => p.ThongBaos)
-                .HasForeignKey(d => d.MaNguoiDung)
-                .HasConstraintName("FK_ThongBao_NguoiDung");
         });
 
         modelBuilder.Entity<TienDoBaiHoc>(entity =>
@@ -371,20 +423,24 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK__TienDoBai__MaTie__7C4F7684");
         });
 
-        modelBuilder.Entity<ThongBaoKhoaHoc>(entity =>
+        modelBuilder.Entity<VoucherHang>(entity =>
         {
-            entity.HasKey(e => e.MaThongBao).HasName("PK_ThongBaoKhoaHoc");
+            entity.HasKey(e => e.MaVoucher).HasName("PK__Voucher___0AAC5B11EF4A5366");
 
-            entity.ToTable("ThongBaoKhoaHoc");
+            entity.ToTable("Voucher_Hang");
 
-            entity.Property(e => e.TieuDe).HasMaxLength(255);
+            entity.Property(e => e.MaCode)
+                .HasMaxLength(50)
+                .IsUnicode(false);
             entity.Property(e => e.NgayTao)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
+            entity.Property(e => e.TieuDe).HasMaxLength(255);
 
-            entity.HasOne(d => d.MaKhoaHocNavigation).WithMany(p => p.ThongBaoKhoaHocs)
-                .HasForeignKey(d => d.MaKhoaHoc)
-                .HasConstraintName("FK_ThongBaoKhoaHoc_KhoaHoc");
+            entity.HasOne(d => d.MaHangNavigation).WithMany(p => p.VoucherHangs)
+                .HasForeignKey(d => d.MaHang)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK__Voucher_H__MaHan__498EEC8D");
         });
 
         modelBuilder.Entity<VwKhoaHocGiaThucTe>(entity =>

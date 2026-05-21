@@ -24,6 +24,61 @@ namespace online_course_recommendation_system.Controller
             _neo4jSettings = neo4jOptions.Value;
         }
 
+        // 4. FALLBACK: GỢI Ý KHÓA HỌC PHỔ BIẾN NHẤT TOÀN HỆ THỐNG (Popularity-Based)
+        [HttpGet("popular")]
+        public async Task<IActionResult> GetPopularCourses()
+        {
+            var popularCourses = new List<object>();
+
+            try
+            {
+                await using var session = _driver.AsyncSession(o => o.WithDatabase(_neo4jSettings.Database));
+
+                var query = @"
+                    MATCH (q:KhoaHoc)<-[dg:DANH_GIA]-(u:NguoiDung)
+                    OPTIONAL MATCH (gv:GiangVien)-[:GIANG_DAY]->(q)
+                    
+                    WITH q, 
+                         count(DISTINCT u) AS userCount, 
+                         avg(dg.diem) AS avgRating,
+                         collect(DISTINCT gv.ten)[0] AS instructorName
+                    
+                    ORDER BY userCount DESC, avgRating DESC
+                    LIMIT 10
+                    
+                    RETURN q.id AS CourseId, 
+                           q.tieuDe AS Title, 
+                           (userCount * avgRating) AS Score,
+                           userCount AS TotalReviews, 
+                           coalesce(q.danhGiaTrungBinh, avgRating) AS AverageRating,
+                           q.giaGoc AS OriginalPrice, 
+                           q.urlAnh AS Image, 
+                           instructorName AS Instructor";
+
+                var result = await session.RunAsync(query);
+                await result.ForEachAsync(record =>
+                {
+                    popularCourses.Add(new
+                    {
+                        CourseId = record["CourseId"].As<long>(),
+                        Title = record["Title"]?.As<string>() ?? "Chưa có tiêu đề",
+                        Score = record["Score"]?.As<double?>() ?? 0.0,
+                        TotalReviews = record["TotalReviews"]?.As<long?>() ?? 0,
+                        AverageRating = record["AverageRating"]?.As<double?>() ?? 0.0,
+                        OriginalPrice = record["OriginalPrice"]?.As<double?>() ?? 0.0,
+                        Image = record["Image"]?.As<string>() ?? "",
+                        Instructor = record["Instructor"]?.As<string>() ?? "Đang cập nhật"
+                    });
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Recommendation] Neo4j error for popular: {ex.Message}");
+            }
+
+            return Ok(popularCourses);
+        }
+
         // 1. GỢI Ý DỰA TRÊN NGƯỜI DÙNG TƯƠNG ĐỒNG (Collaborative Filtering)
         [HttpGet("user-based/{userId}")]
         public async Task<IActionResult> GetUserBasedRecommendations(int userId)
@@ -83,7 +138,7 @@ namespace online_course_recommendation_system.Controller
             return Ok(recommendedCourses);
         }
 
-        // 2. GỢI Ý DỰA TRÊN HỒ SƠ & NỘI DUNG (Content-Based + Popularity)
+        // 2. GỢI Ý DỰA TRÊN HỒ SƠ & NỘI DUNG (Content-Based + Popularity) cá nhân hóa
         [HttpGet("user-profile/{userId}")]
         public async Task<IActionResult> GetUserProfileBasedRecommendations(int userId)
         {

@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using online_course_recommendation_system.Data;
 using online_course_recommendation_system.Models;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text;
 
 namespace online_course_recommendation_system.Controllers
 {
@@ -42,6 +45,38 @@ namespace online_course_recommendation_system.Controllers
             if (existing != null)
                 return BadRequest(new { message = "Bạn đã đánh giá khóa học này rồi. Mỗi người chỉ được đánh giá một lần." });
 
+            string predictedEmotion = "Other"; // Mặc định
+
+            // Gọi sang Flask API để dự đoán cảm xúc (nếu có bình luận)
+            if (!string.IsNullOrWhiteSpace(request.BinhLuan))
+            {
+                try
+                {
+                    using (var httpClient = new HttpClient())
+                    {
+                        var content = new StringContent(
+                            JsonSerializer.Serialize(new { text = request.BinhLuan }), 
+                            Encoding.UTF8, 
+                            "application/json"
+                        );
+                        
+                        // URL của Flask API
+                        var response = await httpClient.PostAsync("http://127.0.0.1:5000/api/predict", content);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var responseData = await response.Content.ReadAsStringAsync();
+                            var jsonDoc = JsonDocument.Parse(responseData);
+                            predictedEmotion = jsonDoc.RootElement.GetProperty("emotion").GetString() ?? "Other";
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Bỏ qua lỗi nếu Flask API chết, vẫn cho phép lưu đánh giá với emotion mặc định
+                    Console.WriteLine($"Flask API Error: {ex.Message}");
+                }
+            }
+
             _context.DanhGia.Add(new DanhGium
             {
                 MaNguoiDung = userId.Value,
@@ -49,7 +84,8 @@ namespace online_course_recommendation_system.Controllers
                 Rating = request.Rating,
                 BinhLuan = request.BinhLuan,
                 NgayDanhGia = DateTime.Now,
-                Thich = 0
+                Thich = 0,
+                Emotion = predictedEmotion
             });
 
             try

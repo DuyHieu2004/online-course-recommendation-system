@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace online_course_recommendation_system.Models;
@@ -16,6 +16,10 @@ public partial class HoaDon
     public DateTime? NgayTao { get; set; }
 
     public int? MaNguoiDung { get; set; }
+
+    public string? MaVoucher { get; set; }
+
+    public decimal? SoTienGiam { get; set; }
 
     public virtual ICollection<ChiTietHoaDon> ChiTietHoaDons { get; set; } = new List<ChiTietHoaDon>();
 
