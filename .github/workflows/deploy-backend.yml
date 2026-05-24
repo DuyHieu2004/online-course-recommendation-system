@@ -24,7 +24,7 @@ jobs:
         context: .
         push: true
         # THAY TÊN TÀI KHOẢN DOCKER CỦA BẠN VÀO ĐÂY:
-        tags: your-docker-username/my-backend:latest
+        tags: duyhieu2004/my-backend:latest
 
     - name: Deploy to Linux VM
       uses: appleboy/ssh-action@v1.0.3
@@ -35,7 +35,7 @@ jobs:
         script: |
           # Di chuyển tới thư mục chứa file docker-compose.yml trên Server
           # (BẠN NHỚ THAY ĐỔI ĐƯỜNG DẪN NÀY CHO ĐÚNG VỚI SERVER CỦA BẠN NHA)
-          cd /path/to/your/project-folder
+          cd /home/azureuser/elearning-project
           
           # Kéo image backend mới nhất từ Docker Hub về
           docker-compose pull backend
