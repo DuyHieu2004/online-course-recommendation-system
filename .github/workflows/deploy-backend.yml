@@ -1,0 +1,44 @@
+name: .NET Backend CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and Push Docker Image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        # THAY TÊN TÀI KHOẢN DOCKER CỦA BẠN VÀO ĐÂY:
+        tags: duyhieu2004/my-backend:latest
+
+    - name: Deploy to Linux VM
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.VM_HOST_IP }}
+        username: ${{ secrets.VM_USERNAME }}
+        key: ${{ secrets.VM_SSH_KEY }}
+        script: |
+          # Di chuyển tới thư mục chứa file docker-compose.yml trên Server
+          # (BẠN NHỚ THAY ĐỔI ĐƯỜNG DẪN NÀY CHO ĐÚNG VỚI SERVER CỦA BẠN NHA)
+          cd /home/azureuser/elearning-project
+          
+          # Kéo image backend mới nhất từ Docker Hub về
+          docker-compose pull backend
+          
+          # Khởi động lại nguyên dàn (nó sẽ chỉ update mỗi backend, DB giữ nguyên)
+          docker-compose up -d
