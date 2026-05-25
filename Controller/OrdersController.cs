@@ -25,169 +25,193 @@ namespace online_course_recommendation_system.Controllers
             var userId = GetUserIdFromToken();
             if (userId == null)
                 return Unauthorized(new { message = "Token không hợp lệ." });
-
-            // 1. TẠO TRANSACTION ĐỂ ĐẢM BẢO AN TOÀN DỮ LIỆU
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
+ 
+            // ✅ Dùng execution strategy — bắt buộc khi dùng EnableRetryOnFailure + transaction thủ công
+            var strategy = _context.Database.CreateExecutionStrategy();
+ 
+            // Dùng biến ngoài để nhận kết quả từ bên trong lambda (lambda không return được IActionResult)
+            IActionResult result = BadRequest(new { message = "Lỗi không xác định." });
+ 
+            await strategy.ExecuteAsync(async () =>
             {
-                var user = await _context.NguoiDungs.FindAsync(userId.Value);
-                if (user == null) return NotFound(new { message = "Người dùng không tồn tại." });
-
-                // Lấy giỏ hàng KÈM THEO KHUYẾN MÃI CỦA ADMIN
-                var cart = await _context.GioHangs
-                    .Include(g => g.ChiTietGioHangs)
-                        .ThenInclude(ct => ct.MaKhoaHocNavigation)
-                            .ThenInclude(k => k.MaKhuyenMaiNavigation) // Lấy KM Admin
-                    .FirstOrDefaultAsync(g => g.MaNguoiDung == userId.Value);
-
-                if (cart == null || !cart.ChiTietGioHangs.Any())
-                    return BadRequest(new { message = "Giỏ hàng trống." });
-
-                // 2. KIỂM TRA MÃ GIẢM GIÁ (VOUCHER CỦA USER) & GIỚI HẠN 5 LẦN/NGÀY
-                decimal phanTramVoucher = 0;
-                if (!string.IsNullOrEmpty(request?.MaVoucher))
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                try
                 {
-                    // Check giới hạn dùng 5 mã/ngày
-                    var usagesToday = await _context.HoaDons
-                        .CountAsync(h => h.MaNguoiDung == userId.Value && h.MaVoucher != null && h.NgayTao.Value.Date == DateTime.Now.Date);
-                    
-                    if (usagesToday >= 5)
-                        return BadRequest(new { message = "Bạn đã sử dụng tối đa 5 mã giảm giá trong hôm nay." });
-
-                    var voucher = await _context.VoucherHangs.FirstOrDefaultAsync(v => v.MaCode == request.MaVoucher);
-                    if (voucher == null) 
-                        return BadRequest(new { message = "Mã giảm giá không hợp lệ hoặc không tồn tại." });
-
-                    // Validate Voucher có đúng với Hạng của User không
-                    var hangCuaVoucher = await _context.HangThanhViens.FindAsync(voucher.MaHang);
-                    if (hangCuaVoucher == null || hangCuaVoucher.TenHang != user.HangThanhVien)
-                        return BadRequest(new { message = $"Mã giảm giá này đặc quyền dành riêng cho hạng {hangCuaVoucher?.TenHang}." });
-
-                    phanTramVoucher = (decimal)hangCuaVoucher.PhanTramUuDai;
-                }
-
-                // 3. TẠO HÓA ĐƠN TRƯỚC (Để lấy MaHoaDon)
-                var hoaDon = new HoaDon
-                {
-                    MaNguoiDung = userId.Value,
-                    TongTien = 0, // Sẽ tính chính xác ở dưới
-                    PhuongThucThanhToan = request?.PhuongThucThanhToan ?? "Chuyển khoản",
-                    TinhTrangThanhToan = true,
-                    NgayTao = DateTime.Now,
-                    MaVoucher = request?.MaVoucher,
-                    SoTienGiam = 0
-                };
-                _context.HoaDons.Add(hoaDon);
-                await _context.SaveChangesAsync();
-
-                // 4. TÍNH TOÁN TIỀN VÀ THÊM VÀO CHI TIẾT HÓA ĐƠN
-                decimal tongTienTamTinh = 0; // Tổng tiền sau khi trừ KM Admin
-
-                foreach (var item in cart.ChiTietGioHangs)
-                {
-                    var course = item.MaKhoaHocNavigation;
-                    if (course == null) continue;
-
-                    decimal giaThucTe = course.GiaGoc ?? 0;
-
-                    // Trừ phần trăm Khuyến mãi của Admin (Nếu có đợt giảm giá)
-                    if (course.MaKhuyenMaiNavigation != null && course.MaKhuyenMaiNavigation.NgayKetThuc >= DateTime.Now)
+                    var user = await _context.NguoiDungs.FindAsync(userId.Value);
+                    if (user == null)
                     {
-                        decimal phanTramAdmin = (decimal)(course.MaKhuyenMaiNavigation.PhanTramGiam ?? 0);
-                        giaThucTe = giaThucTe * (1m - (phanTramAdmin / 100m));
+                        // ✅ Không dùng "return NotFound(...)" — chỉ gán result rồi return;
+                        result = NotFound(new { message = "Người dùng không tồn tại." });
+                        return;
                     }
-
-                    tongTienTamTinh += giaThucTe;
-
-                    // Ghi nhận giá đã giảm của Admin vào DB
-                    _context.ChiTietHoaDons.Add(new ChiTietHoaDon
+ 
+                    // Lấy giỏ hàng KÈM THEO KHUYẾN MÃI CỦA ADMIN
+                    var cart = await _context.GioHangs
+                        .Include(g => g.ChiTietGioHangs)
+                            .ThenInclude(ct => ct.MaKhoaHocNavigation)
+                                .ThenInclude(k => k.MaKhuyenMaiNavigation)
+                        .FirstOrDefaultAsync(g => g.MaNguoiDung == userId.Value);
+ 
+                    if (cart == null || !cart.ChiTietGioHangs.Any())
                     {
-                        MaHoaDon = hoaDon.MaHoaDon,
-                        MaKhoaHoc = item.MaKhoaHoc,
-                        Gia = giaThucTe 
-                    });
-
-                    // Logic thêm Tiến Độ / Gia Hạn (Giữ nguyên của bạn)
-                    var existingTienDo = await _context.TienDos.FirstOrDefaultAsync(t => t.MaNguoiDung == userId.Value && t.MaKhoaHoc == item.MaKhoaHoc);
-                    var thoiGianHoc = course.ThoiGianHocDuKien ?? 0;
-                    var thoiGianTre = course.ThoiGianChoPhepTre ?? 0;
-                    DateTime? ngayKetThucMoi = thoiGianHoc > 0 ? DateTime.Now.AddMonths(thoiGianHoc).AddDays(thoiGianTre) : null;
-
-                    if (existingTienDo != null)
-                    {
-                        existingTienDo.NgayKetThuc = ngayKetThucMoi;
-                        existingTienDo.TinhTrang = true;
-                        existingTienDo.NgayThamGia = DateTime.Now; 
+                        result = BadRequest(new { message = "Giỏ hàng trống." });
+                        return;
                     }
-                    else
+ 
+                    // 2. KIỂM TRA MÃ GIẢM GIÁ (VOUCHER CỦA USER) & GIỚI HẠN 5 LẦN/NGÀY
+                    decimal phanTramVoucher = 0;
+                    if (!string.IsNullOrEmpty(request?.MaVoucher))
                     {
-                        _context.TienDos.Add(new TienDo { MaNguoiDung = userId.Value, MaKhoaHoc = item.MaKhoaHoc, PhanTramTienDo = 0, TinhTrang = true, NgayThamGia = DateTime.Now, NgayKetThuc = ngayKetThucMoi });
+                        var usagesToday = await _context.HoaDons
+                            .CountAsync(h => h.MaNguoiDung == userId.Value && h.MaVoucher != null && h.NgayTao!.Value.Date == DateTime.Now.Date);
+ 
+                        if (usagesToday >= 5)
+                        {
+                            result = BadRequest(new { message = "Bạn đã sử dụng tối đa 5 mã giảm giá trong hôm nay." });
+                            return;
+                        }
+ 
+                        var voucher = await _context.VoucherHangs.FirstOrDefaultAsync(v => v.MaCode == request.MaVoucher);
+                        if (voucher == null)
+                        {
+                            result = BadRequest(new { message = "Mã giảm giá không hợp lệ hoặc không tồn tại." });
+                            return;
+                        }
+ 
+                        var hangCuaVoucher = await _context.HangThanhViens.FindAsync(voucher.MaHang);
+                        if (hangCuaVoucher == null || hangCuaVoucher.TenHang != user.HangThanhVien)
+                        {
+                            result = BadRequest(new { message = $"Mã giảm giá này đặc quyền dành riêng cho hạng {hangCuaVoucher?.TenHang}." });
+                            return;
+                        }
+ 
+                        phanTramVoucher = (decimal)hangCuaVoucher.PhanTramUuDai;
                     }
-                }
-
-                // 5. TRỪ TIẾP VOUCHER CỦA USER VÀ LƯU TỔNG TIỀN CUỐI CÙNG
-                decimal soTienGiamVoucher = tongTienTamTinh * (phanTramVoucher / 100m);
-                hoaDon.SoTienGiam = Math.Round(soTienGiamVoucher, 0); // Làm tròn tiền
-                hoaDon.TongTien = Math.Max(0, tongTienTamTinh - hoaDon.SoTienGiam.Value); 
-                
-                _context.ChiTietGioHangs.RemoveRange(cart.ChiTietGioHangs);
-                await _context.SaveChangesAsync();
-
-                // 6. LOGIC TỰ ĐỘNG THĂNG HẠNG VÀ TẶNG VOUCHER (ĐÃ KHẮC PHỤC TRIỆT ĐỂ)
-                int totalCourses = await _context.TienDos.CountAsync(t => t.MaNguoiDung == userId.Value);
-                
-                // Lấy toàn bộ danh sách hạng xếp từ cao xuống thấp
-                var danhSachHang = await _context.HangThanhViens.OrderByDescending(h => h.SoKhoaHocToiThieu).ToListAsync();
-                
-                // Hạng cao nhất mà user ĐỦ ĐIỀU KIỆN đạt được ở hiện tại
-                var matchedTier = danhSachHang.FirstOrDefault(h => totalCourses >= h.SoKhoaHocToiThieu);
-
-                // Lấy thông tin Hạng HIỆN TẠI của user (Xử lý triệt để lỗi NULL với tài khoản cũ)
-                string currentTierName = string.IsNullOrEmpty(user.HangThanhVien) ? "Thường" : user.HangThanhVien;
-                var currentTier = danhSachHang.FirstOrDefault(h => h.TenHang == currentTierName);
-
-                // ĐIỀU KIỆN VÀNG: Chỉ thăng hạng khi Hạng Mới có yêu cầu số khóa học > Hạng Hiện Tại
-                if (matchedTier != null && currentTier != null && matchedTier.SoKhoaHocToiThieu > currentTier.SoKhoaHocToiThieu)
-                {
-                    user.HangThanhVien = matchedTier.TenHang; // Cập nhật hạng mới
-                    
-                    var voucherThuong = await _context.VoucherHangs.FirstOrDefaultAsync(v => v.MaHang == matchedTier.MaHang);
-                    
-                    string noiDungThongBao = voucherThuong != null
-                        ? $"Chúc mừng bạn đã sở hữu {totalCourses} khóa học. Tặng bạn mã giảm giá {matchedTier.PhanTramUuDai}%: {voucherThuong.MaCode}. Mã có thể dùng 5 lần/ngày!"
-                        : $"Chúc mừng bạn đã sở hữu {totalCourses} khóa học. Bạn đã kích hoạt đặc quyền ưu đãi giảm {matchedTier.PhanTramUuDai}% cho các đơn hàng tiếp theo!";
-
-                    _context.ThongBaos.Add(new ThongBao
+ 
+                    // 3. TẠO HÓA ĐƠN TRƯỚC (Để lấy MaHoaDon)
+                    var hoaDon = new HoaDon
                     {
                         MaNguoiDung = userId.Value,
-                        TieuDe = $"🎉 Bạn đã được thăng hạng {matchedTier.TenHang}!",
-                        NoiDung = noiDungThongBao,
+                        TongTien = 0,
+                        PhuongThucThanhToan = request?.PhuongThucThanhToan ?? "Chuyển khoản",
+                        TinhTrangThanhToan = true,
                         NgayTao = DateTime.Now,
-                        DaDoc = false
+                        MaVoucher = request?.MaVoucher,
+                        SoTienGiam = 0
+                    };
+                    _context.HoaDons.Add(hoaDon);
+                    await _context.SaveChangesAsync();
+ 
+                    // 4. TÍNH TOÁN TIỀN VÀ THÊM VÀO CHI TIẾT HÓA ĐƠN
+                    decimal tongTienTamTinh = 0;
+ 
+                    foreach (var item in cart.ChiTietGioHangs)
+                    {
+                        var course = item.MaKhoaHocNavigation;
+                        if (course == null) continue;
+ 
+                        decimal giaThucTe = course.GiaGoc ?? 0;
+ 
+                        if (course.MaKhuyenMaiNavigation != null && course.MaKhuyenMaiNavigation.NgayKetThuc >= DateTime.Now)
+                        {
+                            decimal phanTramAdmin = (decimal)(course.MaKhuyenMaiNavigation.PhanTramGiam ?? 0);
+                            giaThucTe = giaThucTe * (1m - (phanTramAdmin / 100m));
+                        }
+ 
+                        tongTienTamTinh += giaThucTe;
+ 
+                        _context.ChiTietHoaDons.Add(new ChiTietHoaDon
+                        {
+                            MaHoaDon = hoaDon.MaHoaDon,
+                            MaKhoaHoc = item.MaKhoaHoc,
+                            Gia = giaThucTe
+                        });
+ 
+                        var existingTienDo = await _context.TienDos.FirstOrDefaultAsync(t => t.MaNguoiDung == userId.Value && t.MaKhoaHoc == item.MaKhoaHoc);
+                        var thoiGianHoc = course.ThoiGianHocDuKien ?? 0;
+                        var thoiGianTre = course.ThoiGianChoPhepTre ?? 0;
+                        DateTime? ngayKetThucMoi = thoiGianHoc > 0 ? DateTime.Now.AddMonths(thoiGianHoc).AddDays(thoiGianTre) : null;
+ 
+                        if (existingTienDo != null)
+                        {
+                            existingTienDo.NgayKetThuc = ngayKetThucMoi;
+                            existingTienDo.TinhTrang = true;
+                            existingTienDo.NgayThamGia = DateTime.Now;
+                        }
+                        else
+                        {
+                            _context.TienDos.Add(new TienDo
+                            {
+                                MaNguoiDung = userId.Value,
+                                MaKhoaHoc = item.MaKhoaHoc,
+                                PhanTramTienDo = 0,
+                                TinhTrang = true,
+                                NgayThamGia = DateTime.Now,
+                                NgayKetThuc = ngayKetThucMoi
+                            });
+                        }
+                    }
+ 
+                    // 5. TRỪ TIẾP VOUCHER CỦA USER VÀ LƯU TỔNG TIỀN CUỐI CÙNG
+                    decimal soTienGiamVoucher = tongTienTamTinh * (phanTramVoucher / 100m);
+                    hoaDon.SoTienGiam = Math.Round(soTienGiamVoucher, 0);
+                    hoaDon.TongTien = Math.Max(0, tongTienTamTinh - hoaDon.SoTienGiam!.Value);
+ 
+                    _context.ChiTietGioHangs.RemoveRange(cart.ChiTietGioHangs);
+                    await _context.SaveChangesAsync();
+ 
+                    // 6. LOGIC TỰ ĐỘNG THĂNG HẠNG VÀ TẶNG VOUCHER
+                    int totalCourses = await _context.TienDos.CountAsync(t => t.MaNguoiDung == userId.Value);
+ 
+                    var danhSachHang = await _context.HangThanhViens.OrderByDescending(h => h.SoKhoaHocToiThieu).ToListAsync();
+                    var matchedTier = danhSachHang.FirstOrDefault(h => totalCourses >= h.SoKhoaHocToiThieu);
+ 
+                    string currentTierName = string.IsNullOrEmpty(user.HangThanhVien) ? "Thường" : user.HangThanhVien;
+                    var currentTier = danhSachHang.FirstOrDefault(h => h.TenHang == currentTierName);
+ 
+                    if (matchedTier != null && currentTier != null && matchedTier.SoKhoaHocToiThieu > currentTier.SoKhoaHocToiThieu)
+                    {
+                        user.HangThanhVien = matchedTier.TenHang;
+ 
+                        var voucherThuong = await _context.VoucherHangs.FirstOrDefaultAsync(v => v.MaHang == matchedTier.MaHang);
+ 
+                        string noiDungThongBao = voucherThuong != null
+                            ? $"Chúc mừng bạn đã sở hữu {totalCourses} khóa học. Tặng bạn mã giảm giá {matchedTier.PhanTramUuDai}%: {voucherThuong.MaCode}. Mã có thể dùng 5 lần/ngày!"
+                            : $"Chúc mừng bạn đã sở hữu {totalCourses} khóa học. Bạn đã kích hoạt đặc quyền ưu đãi giảm {matchedTier.PhanTramUuDai}% cho các đơn hàng tiếp theo!";
+ 
+                        _context.ThongBaos.Add(new ThongBao
+                        {
+                            MaNguoiDung = userId.Value,
+                            TieuDe = $"🎉 Bạn đã được thăng hạng {matchedTier.TenHang}!",
+                            NoiDung = noiDungThongBao,
+                            NgayTao = DateTime.Now,
+                            DaDoc = false
+                        });
+                    }
+                    else if (string.IsNullOrEmpty(user.HangThanhVien))
+                    {
+                        user.HangThanhVien = "Thường";
+                    }
+ 
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+ 
+                    result = Ok(new
+                    {
+                        message = "Thanh toán thành công!",
+                        maHoaDon = hoaDon.MaHoaDon,
+                        tongTien = hoaDon.TongTien,
+                        soTienGiam = hoaDon.SoTienGiam
                     });
                 }
-                else if (string.IsNullOrEmpty(user.HangThanhVien))
+                catch (Exception ex)
                 {
-                    // Âm thầm chuẩn hóa dữ liệu cho các tài khoản cũ bị NULL về mốc cơ sở
-                    user.HangThanhVien = "Thường"; 
+                    await transaction.RollbackAsync();
+                    result = BadRequest(new { message = ex.InnerException?.Message ?? ex.Message });
                 }
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                return Ok(new
-                {
-                    message = "Thanh toán thành công!",
-                    maHoaDon = hoaDon.MaHoaDon,
-                    tongTien = hoaDon.TongTien,
-                    soTienGiam = hoaDon.SoTienGiam
-                });
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                return BadRequest(new { message = ex.InnerException != null ? ex.InnerException.Message : ex.Message });
-            }
+            });
+ 
+            return result;
         }
 
         // ② GET /api/orders — Lịch sử đơn hàng
