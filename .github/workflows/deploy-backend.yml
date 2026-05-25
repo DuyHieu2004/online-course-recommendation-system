@@ -38,7 +38,7 @@ jobs:
           cd /home/azureuser/elearning-project
           
           # Kéo image backend mới nhất từ Docker Hub về
-          docker-compose pull backend
+          sudo docker-compose pull backend
           
           # Khởi động lại nguyên dàn (nó sẽ chỉ update mỗi backend, DB giữ nguyên)
-          docker-compose up -d
+          sudo docker-compose up -d
