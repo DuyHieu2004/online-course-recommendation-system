@@ -42,3 +42,9 @@ jobs:
           
           # Khởi động lại nguyên dàn (nó sẽ chỉ update mỗi backend, DB giữ nguyên)
           sudo docker compose up -d
+          
+          echo "Đợi 10 giây để Back-end khởi động..."
+          sleep 10
+          
+          echo "=== XEM LOG CỦA BACK-END ĐỂ TÌM LỖI 500 ==="
+          sudo docker compose logs --tail=200 backend
