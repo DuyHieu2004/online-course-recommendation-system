@@ -127,6 +127,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 var app = builder.Build();
 
+// Bật tạm thời tính năng show chi tiết lỗi để dễ debug trên Production
+app.UseDeveloperExceptionPage();
+
 // 3. CẤU HÌNH HIỂN THỊ GIAO DIỆN SWAGGER
 if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Docker"))
 {
