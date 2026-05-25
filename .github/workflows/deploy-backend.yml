@@ -8,6 +8,10 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
+    environment: 
+      name: production
+      url: http://20.239.91.134:5128/swagger
+
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
