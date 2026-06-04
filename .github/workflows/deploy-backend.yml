@@ -1,0 +1,54 @@
+name: .NET Backend CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    environment: 
+      name: production
+      url: http://20.239.91.134:5128/swagger
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and Push Docker Image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        # THAY TÊN TÀI KHOẢN DOCKER CỦA BẠN VÀO ĐÂY:
+        tags: duyhieu2004/my-backend:latest
+
+    - name: Deploy to Linux VM
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.VM_HOST_IP }}
+        username: ${{ secrets.VM_USERNAME }}
+        key: ${{ secrets.VM_SSH_KEY }}
+        script: |
+          # Di chuyển tới thư mục chứa file docker-compose.yml trên Server
+          # (BẠN NHỚ THAY ĐỔI ĐƯỜNG DẪN NÀY CHO ĐÚNG VỚI SERVER CỦA BẠN NHA)
+          cd /home/azureuser/elearning-project
+          
+          # Kéo image backend mới nhất từ Docker Hub về
+          sudo docker compose pull backend
+          
+          # Khởi động lại nguyên dàn (nó sẽ chỉ update mỗi backend, DB giữ nguyên)
+          sudo docker compose up -d
+          
+          echo "Đợi 10 giây để Back-end khởi động..."
+          sleep 10
+          
+          echo "=== XEM LOG CỦA BACK-END ĐỂ TÌM LỖI 500 ==="
+          sudo docker compose logs --tail=200 backend
