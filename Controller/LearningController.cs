@@ -139,72 +139,77 @@ namespace online_course_recommendation_system.Controllers
         [HttpGet("course/{courseId}")]
         public async Task<IActionResult> GetCourseContent(int courseId)
         {
-            var userId = GetUserIdFromToken();
-            if (userId == null)
-                return Unauthorized(new { message = "Token không hợp lệ." });
-
-            var tienDo = await _context.TienDos
-                .Include(t => t.TienDoBaiHocs)
-                .FirstOrDefaultAsync(t => t.MaNguoiDung == userId.Value && t.MaKhoaHoc == courseId);
-
-            if (tienDo == null)
-                return StatusCode(403, new { message = "Bạn chưa đăng ký khóa học này." });
-
-            // THÊM ĐOẠN NÀY ĐỂ CHẶN TRUY CẬP
-            if (tienDo.NgayKetThuc.HasValue && tienDo.NgayKetThuc.Value < DateTime.Now)
+            try
             {
-                return StatusCode(403, new { message = "Khóa học này đã hết hạn. Vui lòng mua lại để giữ nguyên tiến độ và tiếp tục học." });
-            }
+                var userId = GetUserIdFromToken();
+                if (userId == null)
+                    return Unauthorized(new { message = "Token không hợp lệ." });
 
-            var completedLessonIds = tienDo.TienDoBaiHocs
-                .Where(x => x.DaHoanThanh == true)
-                .Select(x => x.MaBaiHoc)
-                .ToHashSet();
+                var tienDo = await _context.TienDos
+                    .Include(t => t.TienDoBaiHocs)
+                    .FirstOrDefaultAsync(t => t.MaNguoiDung == userId.Value && t.MaKhoaHoc == courseId);
 
-            var course = await _context.KhoaHocs
-                .Include(k => k.Chuongs)
-                    .ThenInclude(c => c.BaiHocs)
-                .Include(k => k.Chuongs)
-                    .ThenInclude(c => c.BaiKiemTras)
-                .Include(k => k.GiangVienKhoaHocs)
-                    .ThenInclude(gv => gv.MaGiangVienNavigation)
-                .FirstOrDefaultAsync(k => k.MaKhoaHoc == courseId);
+                if (tienDo == null)
+                    return StatusCode(403, new { message = "Bạn chưa đăng ký khóa học này." });
 
-            if (course == null)
-                return NotFound(new { message = "Không tìm thấy khóa học." });
-
-            var result = new
-            {
-                course.MaKhoaHoc,
-                course.TieuDe,
-                PhanTramTienDo = tienDo.PhanTramTienDo,
-                GiangVien = course.GiangVienKhoaHocs
-                    .Where(gv => gv.LaGiangVienChinh == true)
-                    .Select(gv => gv.MaGiangVienNavigation?.Ten)
-                    .FirstOrDefault(),
-                Chuongs = course.Chuongs.Select(c => new
+                // THÊM ĐOẠN NÀY ĐỂ CHẶN TRUY CẬP
+                if (tienDo.NgayKetThuc.HasValue && tienDo.NgayKetThuc.Value < DateTime.Now)
                 {
-                    c.MaChuong,
-                    c.TieuDe,
-                    BaiHocs = c.BaiHocs.Select(b => new
-                    {
-                        b.MaBaiHoc,
-                        b.LyThuyet,
-                        b.LinkVideo,
-                        b.BaiTap,
-                        b.LinkTaiLieu,
-                        DaHoanThanh = completedLessonIds.Contains(b.MaBaiHoc)
-                    }).ToList(),
-                    BaiKiemTras = c.BaiKiemTras.Select(q => new
-                    {
-                        q.MaBaiKiemTra,
-                        q.TieuDe,
-                        q.ThoiGianLamBai
-                    }).ToList()
-                }).ToList()
-            };
+                    return StatusCode(403, new { message = "Khóa học này đã hết hạn. Vui lòng mua lại để giữ nguyên tiến độ và tiếp tục học." });
+                }
 
-            return Ok(result);
+                // Fix 1: Thêm toán tử ?? để đảm bảo không bị lỗi nếu TienDoBaiHocs là null
+                var completedLessonIds = (tienDo.TienDoBaiHocs ?? new List<TienDoBaiHoc>())
+                    .Where(x => x.DaHoanThanh == true)
+                    .Select(x => x.MaBaiHoc)
+                    .ToHashSet();
+
+                var course = await _context.KhoaHocs
+                    .Include(k => k.Chuongs)
+                        .ThenInclude(c => c.BaiHocs)
+                    // ĐÃ BỎ Include BaiKiemTras ở đây
+                    .Include(k => k.GiangVienKhoaHocs)
+                        .ThenInclude(gv => gv.MaGiangVienNavigation)
+                    .FirstOrDefaultAsync(k => k.MaKhoaHoc == courseId);
+
+                if (course == null)
+                    return NotFound(new { message = "Không tìm thấy khóa học." });
+
+                // Fix 2: Thêm dấu '?' (Null-conditional operator) trước các hàm LINQ
+                var result = new
+                {
+                    course.MaKhoaHoc,
+                    course.TieuDe,
+                    PhanTramTienDo = tienDo.PhanTramTienDo,
+                    GiangVien = course.GiangVienKhoaHocs?
+                        .Where(gv => gv.LaGiangVienChinh == true)
+                        .Select(gv => gv.MaGiangVienNavigation?.Ten)
+                        .FirstOrDefault(),
+                    Chuongs = course.Chuongs?.Select(c => new
+                    {
+                        c.MaChuong,
+                        c.TieuDe,
+                        BaiHocs = c.BaiHocs?.Select(b => new
+                        {
+                            b.MaBaiHoc,
+                            b.LyThuyet,
+                            b.LinkVideo,
+                            b.BaiTap,
+                            b.LinkTaiLieu,
+                            DaHoanThanh = completedLessonIds.Contains(b.MaBaiHoc)
+                        }).ToList()
+                        // ĐÃ BỎ thuộc tính BaiKiemTras ở đây
+                    }).ToList()
+                };
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                // Fix 3: Bọc try-catch để nếu có lỗi khác, FE sẽ nhận được thông báo rõ ràng thay vì crash ngầm
+                var innerMsg = ex.InnerException != null ? ex.InnerException.Message : "";
+                return StatusCode(500, new { message = "Lỗi khi tải nội dung: " + ex.Message, details = innerMsg });
+            }
         }
 
         // ③ POST /api/learning/lesson/{lessonId}/complete — Đánh dấu hoàn thành bài học
