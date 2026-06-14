@@ -129,6 +129,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 var app = builder.Build();
 
+// Bật tạm thời tính năng show chi tiết lỗi để dễ debug trên Production
+app.UseDeveloperExceptionPage();
+
 // 3. CẤU HÌNH HIỂN THỊ GIAO DIỆN SWAGGER
 if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Docker"))
 {
@@ -140,10 +143,27 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Docker"))
 }
 
 app.UseStaticFiles();
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 app.UseCors("AllowAngular");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+// Tự động chạy Migration để tạo Database và các Bảng khi ứng dụng khởi động
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        var context = services.GetRequiredService<online_course_recommendation_system.Data.AppDbContext>();
+        if (context.Database.GetPendingMigrations().Any())
+        {
+            context.Database.Migrate();
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Lỗi khi chạy Migration lúc khởi động: {ex.Message}");
+    }
+}
 
 app.Run();

@@ -8,3 +8,4 @@ Database/ELearning_DB_Full.sql
 venv/
 .venv/
 env/
+/appsettings.Production.json
