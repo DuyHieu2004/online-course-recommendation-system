@@ -136,16 +136,53 @@ namespace online_course_recommendation_system.Controller
         }
 
         // HÀM HỖ TRỢ: Lấy Vector từ API Python nội bộ
+        // private async Task<List<float>> GetEmbeddingFromLocalServiceAsync(string text)
+        // {
+        //     var embeddingApiUrl = _configuration["AzureSearch:EmbeddingApiUrl"];
+        //     if (string.IsNullOrEmpty(embeddingApiUrl)) return new List<float>();
+
+        //     var payload = new { text = text };
+        //     var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        //     var response = await _httpClient.PostAsync(embeddingApiUrl, content);
+        //     response.EnsureSuccessStatusCode();
+
+        //     var jsonString = await response.Content.ReadAsStringAsync();
+        //     var jsonDoc = JsonDocument.Parse(jsonString);
+            
+        //     // Đọc mảng float từ JSON trả về
+        //     var vectorArray = jsonDoc.RootElement.GetProperty("vector").EnumerateArray();
+        //     return vectorArray.Select(x => x.GetSingle()).ToList();
+        // }
+
+        // HÀM HỖ TRỢ: Lấy Vector từ API Azure ML
         private async Task<List<float>> GetEmbeddingFromLocalServiceAsync(string text)
         {
             var embeddingApiUrl = _configuration["AzureSearch:EmbeddingApiUrl"];
+            var embeddingApiKey = _configuration["AzureSearch:EmbeddingApiKey"]; // Lấy key từ appsettings
+
             if (string.IsNullOrEmpty(embeddingApiUrl)) return new List<float>();
 
             var payload = new { text = text };
             var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.PostAsync(embeddingApiUrl, content);
-            response.EnsureSuccessStatusCode();
+            // Tạo Request có đính kèm Header bảo mật (Bearer Token)
+            var request = new HttpRequestMessage(HttpMethod.Post, embeddingApiUrl);
+            request.Content = content;
+            
+            // Đây là dòng quan trọng nhất để Azure cho phép bạn truy cập
+            if (!string.IsNullOrEmpty(embeddingApiKey))
+            {
+                request.Headers.Add("Authorization", $"Bearer {embeddingApiKey}");
+            }
+
+            var response = await _httpClient.SendAsync(request);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorMsg = await response.Content.ReadAsStringAsync();
+                throw new Exception($"Lỗi từ Azure ML Endpoint: {errorMsg}");
+            }
 
             var jsonString = await response.Content.ReadAsStringAsync();
             var jsonDoc = JsonDocument.Parse(jsonString);

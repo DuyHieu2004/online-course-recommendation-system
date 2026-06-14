@@ -4,7 +4,7 @@ from sentence_transformers import SentenceTransformer
 import uvicorn
 
 app = FastAPI()
-
+# "EmbeddingApiUrl": "http://127.0.0.1:8000/embed"
 # Load mô hình 1 lần duy nhất khi khởi động API
 print("Đang tải mô hình BAAI/bge-m3...")
 # Dùng device="cuda" nếu máy bạn có GPU, ngược lại để "cpu"
