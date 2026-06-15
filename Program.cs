@@ -109,6 +109,8 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+builder.Services.AddHttpClient();
+
 // ĐĂNG KÝ JWT AUTHENTICATION VÀO HỆ THỐNG
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

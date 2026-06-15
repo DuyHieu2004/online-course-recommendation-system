@@ -79,6 +79,71 @@ namespace online_course_recommendation_system.Controller
             return Ok(popularCourses);
         }
 
+
+        // =================================================================
+        // 5. GỢI Ý QUA MÔ HÌNH MATRIX FACTORIZATION (ALS AI)
+        // =================================================================
+        [HttpGet("als/{userId}")]
+        public async Task<IActionResult> GetAlsRecommendations(int userId)
+        {
+            var recommendedCourses = new List<object>();
+
+            try
+            {
+                await using var session = _driver.AsyncSession(o => o.WithDatabase(_neo4jSettings.Database));
+
+                // Lấy các khóa học có liên kết ALS_RECOMMEND và loại bỏ các khóa học người dùng đã học
+                var query = @"
+                    MATCH (u:NguoiDung {id: $userId})-[r:ALS_RECOMMEND]->(q:KhoaHoc)
+                    WHERE NOT (u)-[:DANH_GIA]->(q)
+                    OPTIONAL MATCH (gv:GiangVien)-[:GIANG_DAY]->(q)
+                    
+                    WITH q, r.score AS alsScore, collect(DISTINCT gv.ten)[0] AS instructorName
+                    ORDER BY alsScore DESC
+                    LIMIT 10
+                    
+                    OPTIONAL MATCH (aiDo:NguoiDung)-[dg_q:DANH_GIA]->(q)
+                    WITH q, alsScore, instructorName, count(dg_q) AS soLuongDanhGia
+                    
+                    RETURN q.id AS CourseId, 
+                        q.tieuDe AS Title, 
+                        alsScore AS Score,
+                        soLuongDanhGia AS TotalReviews, 
+                        coalesce(q.danhGiaTrungBinh, 0.0) AS AverageRating,
+                        q.giaGoc AS OriginalPrice, 
+                        q.urlAnh AS Image, 
+                        instructorName AS Instructor";
+
+                var result = await session.RunAsync(query, new { userId });
+                await result.ForEachAsync(record =>
+                {
+                    recommendedCourses.Add(new
+                    {
+                        CourseId = record["CourseId"].As<long>(),
+                        Title = record["Title"]?.As<string>() ?? "Chưa có tiêu đề",
+                        Score = record["Score"]?.As<double?>() ?? 0.0,
+                        TotalReviews = record["TotalReviews"]?.As<long?>() ?? 0,
+                        AverageRating = record["AverageRating"]?.As<double?>() ?? 0.0,
+                        OriginalPrice = record["OriginalPrice"]?.As<double?>() ?? 0.0,
+                        Image = record["Image"]?.As<string>() ?? "",
+                        Instructor = record["Instructor"]?.As<string>() ?? "Đang cập nhật"
+                    });
+                });
+
+                // FALLBACK: Nếu người dùng mới chưa được hệ thống tính toán ma trận ALS (Cold Start)
+                if (recommendedCourses.Count == 0)
+                {
+                    return await GetPopularCourses();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Recommendation] Neo4j error for als/{userId}: {ex.Message}");
+            }
+
+            return Ok(recommendedCourses);
+        }
+
         // 1. GỢI Ý DỰA TRÊN NGƯỜI DÙNG TƯƠNG ĐỒNG (Collaborative Filtering)
         [HttpGet("user-based/{userId}")]
         public async Task<IActionResult> GetUserBasedRecommendations(int userId)

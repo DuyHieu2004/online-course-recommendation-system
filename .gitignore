@@ -5,4 +5,7 @@ obj/
 /appsettings.json
 /appsettings.Development.json
 Database/ELearning_DB_Full.sql
+venv/
+.venv/
+env/
 /appsettings.Production.json
