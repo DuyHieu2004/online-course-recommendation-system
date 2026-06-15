@@ -56,7 +56,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
     {
-        policy.WithOrigins("http://20.239.91.134", "http://localhost:4200")
+        policy.WithOrigins("http://20.239.91.134", "http://localhost:4200", "http://khoa-hoc-elearning.me")
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
